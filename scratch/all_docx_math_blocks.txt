@@ -1,0 +1,56 @@
+本问题在不考虑实体无人机和共享电池调度的情况下，研究单服务区直接往返条件下的运输能力与货箱组批问题。每个架次采用 O01→Si→O01 的直接往返形式，仅服务一个服务区，其中[MATH:O01]表示临时调度中心，Si表示第i个服务区（[MATH:i][MATH:=1,2,…,15]）；同一服务区可由多个架次分批服务，不得跨服务区组批。根据附件给出的节点坐标、30 米 DEM、机型参数和货箱数据，完成如下各项：
+
+水平巡航距离、爬升高度和下降高度由节点位置、DEM及计划巡航海拔确定。机型 [MATH:g] 携带载荷[MATH:q] 时的等效航程为：
+
+[MATH:L][MATH:g][MATH:(][MATH:q][MATH:)=][MATH:L][MATH:g][MATH:0][MATH:-][MATH:L][MATH:g][MATH:0][MATH:-][MATH:L][MATH:g][MATH:F][MATH:q][MATH:Q][MATH:g][MATH:3][MATH:/][MATH:2][MATH:,][MATH:  0][MATH:≤][MATH:q][MATH:≤][MATH:Q][MATH:g][MATH:.]
+
+其中，[MATH:g] 表示运输无人机机型，[MATH:q] 表示当前有效载荷（kg）；[MATH:L][MATH:g][MATH:0]和[MATH:L][MATH:g][MATH:F]分别表示机型 [MATH:g] 的空载标准航程和满载标准航程（m）；[MATH:Q][MATH:g] 表示机型 [MATH:g] 的最大载货质量（kg）。
+
+[MATH:t][MATH:gij][MATH:=][MATH:h][MATH:ij][MATH:+][MATH:v][MATH:g][MATH:↑][MATH:+][MATH:d][MATH:ij][MATH:v][MATH:g][MATH:c][MATH:+][MATH:h][MATH:ij][MATH:-][MATH:v][MATH:g][MATH:↓]
+
+其中，[MATH:t][MATH:gij] 表示机型 [MATH:g] 从节点 [MATH:i] 到节点 [MATH:j] 的航段飞行时间（s）；[MATH:d][MATH:ij] 为水平巡航距离（m）；[MATH:h][MATH:ij][MATH:+]、[MATH:h][MATH:ij][MATH:-] 分别为爬升高度和下降高度（m）；[MATH:v][MATH:g][MATH:↑]、[MATH:v][MATH:g][MATH:c]、[MATH:v][MATH:g][MATH:↓] 分别为爬升、巡航和下降速度（m/s）。
+
+[MATH:E][MATH:gij][MATH:(][MATH:q][MATH:)=][MATH:E][MATH:gij][MATH:hor][MATH:(][MATH:q][MATH:)+][MATH:E][MATH:gij][MATH:up][MATH:(][MATH:q][MATH:).]
+
+其中，[MATH:E][MATH:gij][MATH:(][MATH:q][MATH:)] 为航段总运输能耗，[MATH:E][MATH:gij][MATH:hor][MATH:(][MATH:q][MATH:)] 和 [MATH:E][MATH:gij][MATH:up][MATH:(][MATH:q][MATH:)] 分别为水平巡航能耗和爬升附加能耗（kWh）。
+
+[MATH:E][MATH:p][MATH:T][MATH:=][MATH:(][MATH:i][MATH:,][MATH:j][MATH:)∈][MATH:p][MATH:​][MATH:E][MATH:gij][MATH:(][MATH:q][MATH:pij][MATH:)≤(][MATH:1][MATH:-][MATH:ρ][MATH:g][MATH:)][MATH:E][MATH:g][MATH:use][MATH:.]
+
+其中，[MATH:E][MATH:p][MATH:T] 为架次 [MATH:p] 的总运输能耗（kWh），[MATH:q][MATH:pij] 为架次 [MATH:p] 在航段 [MATH:i]→[MATH:j] 上的剩余载荷（kg），[MATH:ρ][MATH:g] 为机型 [MATH:g] 的返航安全余量比例，[MATH:E][MATH:g][MATH:use] 为机型 [MATH:g] 单组电池的可用能量（kWh）。
+
+[MATH:t][MATH:chg][MATH:(s) =][MATH:T][MATH:full][MATH:[0.65(0.90 - s)/0.90 + 0.35],    0 ≤ s < 0.90][MATH:T][MATH:full][MATH:·0.35(1 - s)/0.10,    0.90 ≤ s ≤ 1]
+
+其中，[MATH:s]为电池或能源组件任务结束时的SOC，[MATH:t][MATH:chg][MATH:(s)]表示该资源从任务结束时 SOC 为 [MATH:s] 的状态充电至100%所需的时间，[MATH:T][MATH:full]为相应资源的等效完全充电时间。同一资源的任务占用与充电时段不得重叠，不同资源可并行充电。
+
+[MATH:b][MATH:ij][MATH:t][MATH:=][MATH:0][MATH:,][MATH:端点][MATH:i][MATH:与][MATH:j][MATH:之间不存在地形遮挡][MATH:,][MATH:1][MATH:,][MATH:端点][MATH:i][MATH:与][MATH:j][MATH:之间存在地形遮挡]
+
+[MATH:P][MATH:th][MATH:b][MATH:=][MATH:P][MATH:sens][MATH:b][MATH:+][MATH:M][MATH:b]
+
+其中，[MATH:P][MATH:sens][MATH:b] 和 [MATH:M][MATH:b] 分别为接收端 [MATH:b] 的接收灵敏度和衰落裕量，具体取值见“通信链路参数.xlsx”。
+
+对于通信方向 [MATH:a][MATH:→][MATH:b]，最大允许总传播损耗为
+
+[MATH:L][MATH:max][MATH:a][MATH:→][MATH:b][MATH:=][MATH:P][MATH:t][MATH:a][MATH:+][MATH:G][MATH:t][MATH:a][MATH:+][MATH:G][MATH:r][MATH:b][MATH:-][MATH:L][MATH:sys][MATH:-][MATH:P][MATH:th][MATH:b]
+
+其中，[MATH:P][MATH:t][MATH:a] 和 [MATH:G][MATH:t][MATH:a] 分别为发射端 [MATH:a] 的发射功率和发射天线增益，[MATH:G][MATH:r][MATH:b] 为接收端 [MATH:b] 的接收天线增益，[MATH:L][MATH:sys] 为系统损耗。
+
+由于运输控制与状态回传均需要通信保障，主体 [MATH:a] 与 [MATH:b] 之间按照双向链路进行判定，其链路门限取两个通信方向最大允许传播损耗中的较小值：
+
+[MATH:L][MATH:max][MATH:a][MATH:↔][MATH:b][MATH:=min][MATH:L][MATH:max][MATH:a][MATH:→][MATH:b][MATH:,][MATH:L][MATH:max][MATH:b][MATH:→][MATH:a]
+
+端点 [MATH:i] 与 [MATH:j] 在时刻 [MATH:t] 的自由空间传播损耗为
+
+[MATH:L][MATH:FSPL,][MATH:ij][MATH:t][MATH:=][MATH:32.45][MATH:+][MATH:20][MATH:log][MATH:10][MATH:f][MATH:+][MATH:20][MATH:log][MATH:10][MATH:D][MATH:ij][MATH:t]
+
+其中，载波频率 [MATH:f] 以 MHz 计，[MATH:D][MATH:ij][MATH:t] 为两个通信端点之间的三维直线距离，以 km 计。
+
+[MATH:L][MATH:path,][MATH:ij][MATH:t][MATH:=][MATH:L][MATH:FSPL,][MATH:ij][MATH:t][MATH:+][MATH:L][MATH:obs][MATH:b][MATH:ij][MATH:t]
+
+其中，[MATH:L][MATH:obs] 为地形遮挡附加损耗，具体取值见“通信链路参数.xlsx”。
+
+端点 [MATH:i] 与 [MATH:j] 之间的双向链路可用性定义为
+
+[MATH:A][MATH:ij][MATH:t][MATH:=][MATH:1][MATH:,][MATH:L][MATH:path,][MATH:ij][MATH:t][MATH:≤][MATH:L][MATH:max][MATH:i][MATH:↔][MATH:j][MATH:,][MATH:0][MATH:,][MATH:L][MATH:path,][MATH:ij][MATH:t][MATH:>][MATH:L][MATH:max][MATH:i][MATH:↔][MATH:j]
+
+其中，[MATH:A][MATH:ij][MATH:t][MATH:=][MATH:1] 表示相应链路可用，[MATH:A][MATH:ij][MATH:t][MATH:=][MATH:0] 表示相应链路不可用。
+

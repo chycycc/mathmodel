@@ -1,0 +1,70 @@
+<mxfile host="Electron" modified="2026-09-23T10:00:00.000Z" agent="Mozilla/5.0" version="21.6.8" type="device">
+  <diagram id="diagram_roadmap" name="全篇整体研究技术路线图">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="827" background="#ffffff">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        
+        <!-- 阶段 0: 输入层 -->
+        <mxCell id="in_title" value="输入层：基础多源异构救援数据与环境感知" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1f5fe;strokeColor=#0288d1;fontStyle=1;fontSize=14;align=left;spacingLeft=15;" vertex="1" parent="1">
+          <mxGeometry x="60" y="40" width="1020" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="in_dem" value="30m DEM 数字高程模型&#xa;(1309×1486 矩阵, 地形起伏 41.7~1132.9m)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#0288d1;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="80" y="95" width="220" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="in_cargo" value="受灾需求与货箱清单&#xa;(15个服务区, 80不可拆箱, 758kg, 紧迫时限)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#0288d1;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="340" y="95" width="230" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="in_drones" value="无人机与能源系统&#xa;(A/B/C型运输机, R型中继机, 两阶段等效充电)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#0288d1;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="610" y="95" width="230" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="in_comm" value="无线射频与空间信道&#xa;(2.4GHz, 链路损耗门限, 10dB山体阻断衰减)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#0288d1;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="880" y="95" width="180" height="50" as="geometry"/>
+        </mxCell>
+        
+        <!-- 阶段 1: 问题一 -->
+        <mxCell id="q1_box" value="问题一：单点往返载荷计算与多批次组批优化&#xa;• 能耗单调性证明与二分法搜索最大安全载重 W_safe&#xa;• C型重载机能量敏感性衰减分析 (80kg -> 50.26kg)&#xa;• 0-1 整数线性规划 (ILP) 货箱不可拆分多批次组批" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3e5f5;strokeColor=#7b1fa2;fontSize=12;align=left;spacingLeft=15;" vertex="1" parent="1">
+          <mxGeometry x="60" y="180" width="1020" height="75" as="geometry"/>
+        </mxCell>
+        
+        <!-- 阶段 2: 问题二 -->
+        <mxCell id="q2_box" value="问题二：异构多点多架次时空协同调度模型 (VRPTW + 充电池周转)&#xa;• 8 架实体无人机 (4 A, 2 B, 2 C) 时域无冲突调度与飞行推进&#xa;• 14 组共享电池动态两阶段充电状态机 (恒流快充 65% + 恒压慢充 35%)&#xa;• 动态剩余载重积分能耗模型与医疗物资 100% 准时交付保障 (Makespan = 3.46h)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8f5e9;strokeColor=#388e3c;fontSize=12;align=left;spacingLeft=15;" vertex="1" parent="1">
+          <mxGeometry x="60" y="290" width="1020" height="85" as="geometry"/>
+        </mxCell>
+        
+        <!-- 阶段 3: 问题三 -->
+        <mxCell id="q3_box" value="问题三：30m DEM 视距遮挡分析与空地中继通信协同优化&#xa;• 3D 光线追踪空间通视判别算法 (Ray-Casting LOS) 沿途采样&#xa;• 固定网关 G01 直连断开区域识别 (12个深山服务区直连中断)&#xa;• 西部/东部双悬停点三维位姿优化与 6 个中继架次零空隙空地接力 (100% 连续通信保障)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff3e0;strokeColor=#f57c00;fontSize=12;align=left;spacingLeft=15;" vertex="1" parent="1">
+          <mxGeometry x="60" y="410" width="1020" height="85" as="geometry"/>
+        </mxCell>
+        
+        <!-- 阶段 4: 问题四 -->
+        <mxCell id="q4_box" value="问题四：救援任务分区与独立资源配置优化&#xa;• 基于航线强绑定 (T002: S002-S004) 的空间拓扑聚类划分 (K=2, K=3)&#xa;• 区间并发扫描法精确核算各组独立运作所需的无人机、电池与中继硬件资产&#xa;• 集中池化协同 (Pooling Effect) 与分散独立配置开销 (Decentralization Overhead) 权衡" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fbe9e7;strokeColor=#d84315;fontSize=12;align=left;spacingLeft=15;" vertex="1" parent="1">
+          <mxGeometry x="60" y="530" width="1020" height="85" as="geometry"/>
+        </mxCell>
+        
+        <!-- 阶段 5: 决策成果 -->
+        <mxCell id="out_box" value="决策成果输出：官方结果提交模板.xlsx (6个Sheet) + 5幅高精度学术矢量图表 (figures/*.pdf) + 应急抢险调度方案报告" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eceff1;strokeColor=#455a64;fontStyle=1;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="60" y="650" width="1020" height="50" as="geometry"/>
+        </mxCell>
+        
+        <!-- 流程连接箭头 -->
+        <mxCell id="e0" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#0288d1;" edge="1" parent="1" source="in_title" target="q1_box">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#7b1fa2;" edge="1" parent="1" source="q1_box" target="q2_box">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#388e3c;" edge="1" parent="1" source="q2_box" target="q3_box">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#f57c00;" edge="1" parent="1" source="q3_box" target="q4_box">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#d84315;" edge="1" parent="1" source="q4_box" target="out_box">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
