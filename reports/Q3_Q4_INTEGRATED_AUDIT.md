@@ -10,7 +10,7 @@ plan.md记录的29架次历史方案与当前Q2 CSV的24架次方案不一致；
 
 ## 文件清单
 
-- code/Q3/q3_solver.js
+- code/Q3/q3_solver.py
 - code/Q4_solver.js
 - results/Q3/Q3_通信保障.csv
 - results/Q3/Q3_中继任务.csv

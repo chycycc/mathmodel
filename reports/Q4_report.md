@@ -35,4 +35,4 @@ K2_A使用较少任务组且工作量极差小于K3，管理单元少；K3提供
 
 ## 6. 复现方式
 
-    node code/Q4_solver.js
+    python code/Q4/q4_solver.py

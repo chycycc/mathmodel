@@ -3,5 +3,9 @@
   "interruptions": 0,
   "relayTrips": 0,
   "directTrips": 24,
-  "candidateCount": 363
+  "candidateCount": 363,
+  "sampleCount": 1344,
+  "minDirectMarginDb": 3.769999999999996,
+  "minDirectLossDb": 79.85,
+  "maxDirectLossDb": 118.23
 }

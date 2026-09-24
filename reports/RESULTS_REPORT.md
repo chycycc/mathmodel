@@ -20,5 +20,5 @@ plan.md中的29架次/8143.7 s为历史版本，与当前CSV和Q2报告的24架�
 
 ## 复现
 
-    node code/Q3/q3_solver.js
-    node code/Q4_solver.js
+    python code/Q3/q3_solver.py
+    python code/Q4/q4_solver.py
