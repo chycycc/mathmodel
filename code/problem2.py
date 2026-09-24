@@ -6,7 +6,7 @@
    - 基于 30m DEM 栅格三维剖面，自适应积分巡航、爬升与交接卸载能耗；
    - 动态载荷逐段递减与 3/2 次方诱导气动阻力模型，严格校验返航 SOC >= 20%。
 2. Clarke-Wright 航程节约多点回路挖掘器（_init_savings）：
-   - 纯空间几何距离公式自动发掘多服务区回路候选，避免人工经验干预。
+   - 用空间节约量产生初始候选；ALNS 修复阶段允许向已有回路插入任意服务区。
 3. 扩展算子库的 ALNS 自适应大规模邻域搜索引擎（ALNS_VRPTW_Solver）：
    - 破坏算子：Random Removal（随机破坏）、Shaw Removal（时空相关性破坏）、Worst Removal（最坏边际代价破坏）；
    - 修复算子：Regret-2 Insertion（两阶段遗憾值插入）；
@@ -64,6 +64,7 @@ def compute_multistop_physics(m_type, visit_seq, box_allocations):
     elapsed_flight = 0.0
     total_energy = 0.0
     delivery_offsets = {}
+    elapsed_handover = 0.0
     
     for next_node in visit_seq:
         t_leg, e_leg = dl.compute_leg_flight(m_type, cur_node, next_node, cur_w)
@@ -74,7 +75,9 @@ def compute_multistop_physics(m_type, visit_seq, box_allocations):
         s_boxes = box_allocations.get(next_node, [])
         n_box = len(s_boxes)
         t_handover = params['t_handover_base'] + n_box * params['t_handover_box']
-        deliv_t = elapsed_flight + t_handover
+        # 交付时刻必须累计此前各服务区的交接时间，再加本站交接时间。
+        elapsed_handover += t_handover
+        deliv_t = elapsed_flight + elapsed_handover
         for b in s_boxes:
             delivery_offsets[b['box_id']] = deliv_t
             
@@ -169,7 +172,8 @@ def simulate_pipeline(candidate_sorties):
         
         # 推进物理状态机：实体机返航后换电可再次起飞；卸下的电池进入充电桩（增加 1 秒换电与精度安全裕量）
         drones[best_u]['avail'] = t_end
-        batteries[best_b]['avail'] = math.ceil((t_end + charge_dur) * 10.0) / 10.0 + 1.0
+        battery_ready = math.ceil((t_end + charge_dur) * 10.0) / 10.0 + 1.0
+        batteries[best_b]['avail'] = battery_ready
         
         seq_str = " -> ".join(seq)
         sortie_records.append({
@@ -180,10 +184,11 @@ def simulate_pipeline(candidate_sorties):
             '开始时刻（s）': round(t_start, 1),
             '访问服务区顺序': seq_str,
             '返回O01时刻（s）': round(t_end, 1),
-            '架次能耗（kWh）': round(e_trip, 3),
+            # 保留 6 位小数，避免用导出 CSV 反算充电时间时放大舍入误差。
+            '架次能耗（kWh）': round(e_trip, 6),
             '返航SOC（%）': round(soc_end, 2),
             '充电耗时（s）': round(charge_dur, 1),
-            '电池就绪时刻（s）': round(t_end + charge_dur, 1)
+            '电池就绪时刻（s）': round(battery_ready, 1)
         })
         
         for b in b_list:
@@ -198,32 +203,43 @@ def simulate_pipeline(candidate_sorties):
                 '截止时限（s）': dl_val,
                 '期望时限（s）': exp_val,
                 '是否首批': b['is_first_batch'],
+                '应急优先系数': float(b.get('priority', 1.0)),
                 '货物类型': b['box_id'].split('-')[1]
             })
             
     # 计算硬时限违约与软时限延误
     hard_violations = 0
-    soft_delay = 0.0
+    weighted_delay = 0.0
     for br in box_records:
         t_deliv = br['交付完成时刻（s）']
         if br['是否首批'] or br['货物类型'] == 'MED':
             if t_deliv > br['截止时限（s）'] + 1e-4:
                 hard_violations += 1
         if t_deliv > br['期望时限（s）']:
-            soft_delay += (t_deliv - br['期望时限（s）'])
+            weighted_delay += (t_deliv - br['期望时限（s）']) * br['应急优先系数']
             
     makespan = max(sr['返回O01时刻（s）'] for sr in sortie_records)
     total_energy = sum(sr['架次能耗（kWh）'] for sr in sortie_records)
     feasible = (hard_violations == 0)
     
-    return feasible, makespan, total_energy, hard_violations, soft_delay, sortie_records, box_records
+    return feasible, makespan, total_energy, hard_violations, weighted_delay, sortie_records, box_records
 
-def evaluate_cost(candidate_sorties, w_ms=2.0, w_e=20.0, w_viol=1e6, w_delay=0.1):
-    """多目标综合代价评估函数"""
-    feas, ms, en, viol, delay, _, _ = simulate_pipeline(candidate_sorties)
+def evaluate_cost(candidate_sorties, w_sorties=250.0, w_ms=250.0, w_e=200.0,
+                  w_viol=1e6, w_delay=300.0):
+    """归一化多目标代价。
+
+    题目未给出固定权重，因此这里显式使用建模权重，并先统一量纲：
+    架次/80、完工时间/10000s、能耗/100kWh、优先系数加权延误/10000。
+    """
+    feas, ms, en, viol, weighted_delay, _, _ = simulate_pipeline(candidate_sorties)
     if not feas:
         return viol * w_viol + ms * w_ms + en * w_e
-    return ms * w_ms + en * w_e + delay * w_delay
+    sortie_term = len(candidate_sorties) / max(1.0, float(len(dl.CARGO_BOXES)))
+    makespan_term = ms / 10000.0
+    energy_term = en / 100.0
+    delay_term = weighted_delay / 10000.0
+    return (w_sorties * sortie_term + w_ms * makespan_term +
+            w_e * energy_term + w_delay * delay_term)
 
 class ALNS_VRPTW_Solver:
     """自适应大规模邻域搜索 (ALNS) 升级版求解器"""
@@ -234,6 +250,8 @@ class ALNS_VRPTW_Solver:
         self.all_boxes = copy.deepcopy(dl.CARGO_BOXES)
         self.box_map = {b['box_id']: b for b in self.all_boxes}
         self.svc_ids = [f"S{i:03d}" for i in range(1, 16)]
+        # 题面允许一个架次连续访问一个或多个服务区；不再人为限定为双点路线。
+        self.max_stops = len(self.svc_ids)
         self._init_savings()
         
     def _init_savings(self):
@@ -333,35 +351,45 @@ class ALNS_VRPTW_Solver:
         return sorties
         
     def _merge_adjacent_sorties(self, sorties):
-        """局部搜索：自适应合并邻近单点架次为多点回路"""
+        """局部搜索：合并互不重复的多点回路，允许超过两个服务区。"""
         improved = True
         while improved:
             improved = False
             for i in range(len(sorties)):
                 for j in range(i + 1, len(sorties)):
                     s1, s2 = sorties[i], sorties[j]
-                    if len(s1['visit_seq']) == 1 and len(s2['visit_seq']) == 1:
-                        sid1 = s1['visit_seq'][0]
-                        sid2 = s2['visit_seq'][0]
-                        if sid1 != sid2:
-                            d01 = dl.get_path_profile('O01', sid1)['dist_m']
-                            d02 = dl.get_path_profile('O01', sid2)['dist_m']
-                            d12 = dl.get_path_profile(sid1, sid2)['dist_m']
-                            if (d01 + d02 - d12) > 1500.0:  # 节约 1.5km 以上
-                                comb_boxes = s1['boxes'] + s2['boxes']
-                                for m in ['A', 'B', 'C']:
-                                    val, _, _, _, _ = compute_multistop_physics(m, [sid1, sid2], {sid1: s1['boxes'], sid2: s2['boxes']})
-                                    if val:
-                                        merged = {'m_type': m, 'visit_seq': [sid1, sid2], 'boxes': comb_boxes}
-                                        new_sorties = [s for idx, s in enumerate(sorties) if idx not in (i, j)] + [merged]
-                                        cost_old = evaluate_cost(sorties)
-                                        cost_new = evaluate_cost(new_sorties)
-                                        if cost_new < cost_old:
-                                            sorties = new_sorties
-                                            improved = True
-                                            break
-                                if improved:
+                    if len(set(s1['visit_seq']).intersection(s2['visit_seq'])):
+                        continue
+                    if len(s1['visit_seq']) + len(s2['visit_seq']) > self.max_stops:
+                        continue
+                    seq_candidates = [s1['visit_seq'] + s2['visit_seq'],
+                                      s2['visit_seq'] + s1['visit_seq']]
+                    for merged_seq in seq_candidates:
+                        if len(merged_seq) == 1:
+                            continue
+                        d_old = sum(dl.get_path_profile('O01', sid)['dist_m'] * 2.0 for sid in merged_seq)
+                        d_new = (dl.get_path_profile('O01', merged_seq[0])['dist_m'] +
+                                  sum(dl.get_path_profile(a, b)['dist_m'] for a, b in zip(merged_seq, merged_seq[1:])) +
+                                  dl.get_path_profile(merged_seq[-1], 'O01')['dist_m'])
+                        if d_old - d_new <= 1500.0:
+                            continue
+                        comb_boxes = s1['boxes'] + s2['boxes']
+                        alloc = {sid: [b for b in comb_boxes if b['service_id'] == sid] for sid in merged_seq}
+                        for m in ['C', 'B', 'A']:
+                            val, _, _, _, _ = compute_multistop_physics(m, merged_seq, alloc)
+                            if val:
+                                merged = {'m_type': m, 'visit_seq': merged_seq, 'boxes': comb_boxes}
+                                new_sorties = [s for idx, s in enumerate(sorties) if idx not in (i, j)] + [merged]
+                                cost_old = evaluate_cost(sorties)
+                                cost_new = evaluate_cost(new_sorties)
+                                if cost_new < cost_old:
+                                    sorties = new_sorties
+                                    improved = True
                                     break
+                        if improved:
+                            break
+                    if improved:
+                        break
                 if improved:
                     break
         return sorties
@@ -379,7 +407,7 @@ class ALNS_VRPTW_Solver:
         for s in sorties_copy:
             rem_b = [b for b in s['boxes'] if b['box_id'] not in remove_ids]
             if rem_b:
-                rem_services = list(dict.fromkeys(b['service_id'] for b in rem_b))
+                rem_services = [sid for sid in s['visit_seq'] if any(b['service_id'] == sid for b in rem_b)]
                 s['boxes'] = rem_b
                 s['visit_seq'] = rem_services
                 new_sorties.append(s)
@@ -405,7 +433,7 @@ class ALNS_VRPTW_Solver:
         for s in sorties_copy:
             rem_b = [b for b in s['boxes'] if b['box_id'] not in remove_ids]
             if rem_b:
-                rem_services = list(dict.fromkeys(b['service_id'] for b in rem_b))
+                rem_services = [sid for sid in s['visit_seq'] if any(b['service_id'] == sid for b in rem_b)]
                 s['boxes'] = rem_b
                 s['visit_seq'] = rem_services
                 new_sorties.append(s)
@@ -432,7 +460,7 @@ class ALNS_VRPTW_Solver:
         for s in sorties_copy:
             rem_b = [b for b in s['boxes'] if b['box_id'] not in remove_ids]
             if rem_b:
-                rem_services = list(dict.fromkeys(b['service_id'] for b in rem_b))
+                rem_services = [sid for sid in s['visit_seq'] if any(b['service_id'] == sid for b in rem_b)]
                 s['boxes'] = rem_b
                 s['visit_seq'] = rem_services
                 new_sorties.append(s)
@@ -449,22 +477,25 @@ class ALNS_VRPTW_Solver:
                 sid = b['service_id']
                 cand_costs = []
                 
-                # 尝试插入现有架次
+                # 尝试插入现有架次；新服务区可插入原路线任意位置，路线长度不再限制为 2。
                 for s_idx, s in enumerate(cur_sorties):
-                    if sid in s['visit_seq'] or len(s['visit_seq']) == 1:
-                        new_seq = list(s['visit_seq'])
-                        if sid not in new_seq:
-                            new_seq.append(sid)
-                        if len(new_seq) <= 2:
-                            cand_boxes = s['boxes'] + [b]
-                            alloc = {x: [bx for bx in cand_boxes if bx['service_id'] == x] for x in new_seq}
-                            for m in ['A', 'B', 'C']:
-                                val, _, _, _, _ = compute_multistop_physics(m, new_seq, alloc)
-                                if val:
-                                    trial_sorties = copy.deepcopy(cur_sorties)
-                                    trial_sorties[s_idx] = {'m_type': m, 'visit_seq': new_seq, 'boxes': cand_boxes}
-                                    c = evaluate_cost(trial_sorties)
-                                    cand_costs.append((c, trial_sorties))
+                    if sid in s['visit_seq']:
+                        seq_candidates = [list(s['visit_seq'])]
+                    else:
+                        seq_candidates = [s['visit_seq'][:pos] + [sid] + s['visit_seq'][pos:]
+                                          for pos in range(len(s['visit_seq']) + 1)]
+                    cand_boxes = s['boxes'] + [b]
+                    for new_seq in seq_candidates:
+                        if len(new_seq) > self.max_stops:
+                            continue
+                        alloc = {x: [bx for bx in cand_boxes if bx['service_id'] == x] for x in new_seq}
+                        for m in ['A', 'B', 'C']:
+                            val, _, _, _, _ = compute_multistop_physics(m, new_seq, alloc)
+                            if val:
+                                trial_sorties = copy.deepcopy(cur_sorties)
+                                trial_sorties[s_idx] = {'m_type': m, 'visit_seq': new_seq, 'boxes': cand_boxes}
+                                c = evaluate_cost(trial_sorties)
+                                cand_costs.append((c, trial_sorties))
                                     
                 # 尝试新开单点架次
                 for m in ['A', 'B', 'C']:
@@ -492,7 +523,7 @@ class ALNS_VRPTW_Solver:
             
         return cur_sorties
 
-    def solve(self, max_iter=50, temp_init=150.0, cooling_rate=0.96):
+    def solve(self, max_iter=100, temp_init=150.0, cooling_rate=0.96):
         """ALNS 优化主循环"""
         print(f"==========================================================")
         print(f"启动升级版 ALNS 算法求解问题二 (SEED={self.seed})")
@@ -550,7 +581,7 @@ class ALNS_VRPTW_Solver:
                     best_sol = copy.deepcopy(current_sol)
                     op_weights[chosen_op] += 2.0
                     f_b, ms_b, en_b, viol_b, _, _, _ = simulate_pipeline(best_sol)
-                    print(f"  [迭代 {it:02d} / {max_iter}] 发现全局更优解! 可行={f_b}, 架次={len(best_sol)}, Makespan={ms_b/3600:.2f}h ({ms_b:.1f}s), 能耗={en_b:.2f}kWh, 违约={viol_b}")
+                    print(f"  [迭代 {it:02d} / {max_iter}] 发现当前更优解! 可行={f_b}, 架次={len(best_sol)}, Makespan={ms_b/3600:.2f}h ({ms_b:.1f}s), 能耗={en_b:.2f}kWh, 违约={viol_b}")
                 else:
                     op_weights[chosen_op] += 0.5
                     
@@ -563,10 +594,36 @@ class ALNS_VRPTW_Solver:
         print(f"==========================================================")
         return best_sol, final_sr, final_br
 
-def run_solver_and_export():
-    """执行求解并直接导出官方标准结果文件"""
-    solver = ALNS_VRPTW_Solver(seed=42)
-    best_sorties, sortie_records, box_records = solver.solve(max_iter=50)
+def run_solver_and_export(seeds=None, max_iter=None):
+    """多随机种子运行 ALNS，并导出官方结果和可复核搜索摘要。"""
+    if seeds is None:
+        seed_text = os.environ.get('Q2_SEEDS', '42,43,44')
+        seeds = [int(x.strip()) for x in seed_text.split(',') if x.strip()]
+    if max_iter is None:
+        max_iter = int(os.environ.get('Q2_MAX_ITER', '100'))
+
+    run_records = []
+    best = None
+    for seed in seeds:
+        solver = ALNS_VRPTW_Solver(seed=seed)
+        candidate_sorties, candidate_sr, candidate_br = solver.solve(max_iter=max_iter)
+        feas, ms, en, viol, weighted_delay, _, _ = simulate_pipeline(candidate_sorties)
+        cost = evaluate_cost(candidate_sorties)
+        run_records.append({
+            'seed': seed,
+            'max_iter': max_iter,
+            '可行': feas,
+            '目标值': cost,
+            '架次': len(candidate_sorties),
+            '完工时间(s)': ms,
+            '能耗(kWh)': en,
+            '硬时限违约箱数': viol,
+            '加权期望时限延误': weighted_delay,
+        })
+        if best is None or cost < best[0]:
+            best = (cost, candidate_sorties, candidate_sr, candidate_br)
+
+    _, best_sorties, sortie_records, box_records = best
     
     # 构造 DataFrame
     df_sorties = pd.DataFrame(sortie_records)
@@ -584,7 +641,11 @@ def run_solver_and_export():
     
     df_sorties[cols_s].to_csv(p_sorties, index=False, encoding='utf-8-sig')
     df_boxes[cols_b].to_csv(p_boxes, index=False, encoding='utf-8-sig')
+    df_sorties.to_csv(os.path.join(out_dir, 'Q2_运输架次_内部核验.csv'), index=False, encoding='utf-8-sig')
+    df_boxes.to_csv(os.path.join(out_dir, 'Q2_逐箱交付_内部核验.csv'), index=False, encoding='utf-8-sig')
+    pd.DataFrame(run_records).to_csv(os.path.join(out_dir, 'Q2_ALNS_多随机种子摘要.csv'), index=False, encoding='utf-8-sig')
     print(f"结果已成功导出至:\n  - {p_sorties}\n  - {p_boxes}")
+    print(f"多随机种子摘要已导出至: {os.path.join(out_dir, 'Q2_ALNS_多随机种子摘要.csv')}")
 
 if __name__ == '__main__':
     run_solver_and_export()

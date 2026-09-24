@@ -25,7 +25,7 @@ def archive():
         print(" -> 已迁移: figures/ => legacy_archive/figures/")
 
     # 3. 迁移旧 reports
-    old_reports = ['RESULTS_REPORT.md', 'DRAWIO_REPORT.md', 'VERIFY_REPORT.md']
+    old_reports = ['Q1_Q2_RESULTS_REPORT.md', 'DRAWIO_REPORT.md', 'Q1_Q2_VERIFY_REPORT.md']
     for r in old_reports:
         src = os.path.join('reports', r)
         dst = os.path.join('legacy_archive/reports', r)

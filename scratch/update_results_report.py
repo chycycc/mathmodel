@@ -245,6 +245,6 @@ python code/plot_all.py
 ```
 """
 
-with open('reports/RESULTS_REPORT.md', 'w', encoding='utf-8') as f:
+with open('reports/Q1_Q2_RESULTS_REPORT.md', 'w', encoding='utf-8') as f:
     f.write(report_text)
-print("RESULTS_REPORT.md 更新成功！")
+print("Q1_Q2_RESULTS_REPORT.md 更新成功！")

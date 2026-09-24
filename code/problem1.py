@@ -3,9 +3,9 @@
 问题一：单点往返运输能力与货箱组批优化（精确数学规划升级版）
 包含：
 1. 15个服务区在三种机型（A/B/C）下的最大安全载荷精确计算（二分数值搜索）
-2. 返航安全余量 eta 敏感性分析 (10% ~ 35%) 与相变临界点解析
-3. 基于集合划分（Set Partitioning Problem, SPP）与分支定界的货箱多批次精确整数规划求解
-4. 多目标帕累托权衡分析（架次优先、能耗优先、时效优先）
+2. 返航安全余量 eta 敏感性分析 (10% ~ 35%)，每个 eta 重新求解组批
+3. 基于集合划分（Set Partitioning Problem, SPP）与位掩码动态规划的精确组批求解
+4. 多目标词典序对比（架次优先、能耗优先、时间优先）
 5. 输出 Q1_单点组批 标准表格并保存至 results/
 """
 
@@ -76,13 +76,39 @@ def solve_q1_payload_table(eta=0.20):
     return pd.DataFrame(records)
 
 def sensitivity_analysis_eta():
-    """返航安全余量变化敏感性分析"""
+    """返航安全余量敏感性分析，并重新求解每个 eta 下的完整组批方案。
+
+    返回值保留每个 eta 的最大安全载荷表、完整组批表和汇总指标；
+    这避免只改变载荷表而不重新验证全网架次和能耗。
+    """
     etas = [0.10, 0.15, 0.20, 0.25, 0.30, 0.35]
-    results = {}
+    details = {}
+    summary_rows = []
+    payload_rows = []
     for eta in etas:
-        df_eta = solve_q1_payload_table(eta)
-        results[eta] = df_eta
-    return results
+        payload_df = solve_q1_payload_table(eta)
+        batch_df = solve_q1_all_batches(eta, objective='min_sorties_then_energy')
+        details[eta] = {
+            'payload_table': payload_df,
+            'batch_table': batch_df,
+        }
+        summary_rows.append({
+            '安全余量eta': eta,
+            '总架次': int(len(batch_df)),
+            '总能耗(kWh)': float(batch_df['架次能耗（kWh）'].sum()),
+            '累计作业时间(s)': float(batch_df['_累计作业时间(s)'].sum()),
+            'A型架次': int((batch_df['机型编号'] == 'A').sum()),
+            'B型架次': int((batch_df['机型编号'] == 'B').sum()),
+            'C型架次': int((batch_df['机型编号'] == 'C').sum()),
+        })
+        payload_rows.extend(payload_df.assign(安全余量eta=eta).to_dict('records'))
+
+    result = {
+        'summary': pd.DataFrame(summary_rows),
+        'details': details,
+        'payload_table': pd.DataFrame(payload_rows),
+    }
+    return result
 
 def compute_batch_metrics(m_type, svc_id, batch_boxes, eta=0.20):
     """
@@ -113,55 +139,21 @@ def compute_batch_metrics(m_type, svc_id, batch_boxes, eta=0.20):
 
 def solve_service_spp(svc_id, eta=0.20, objective='min_sorties_then_energy'):
     """
-    针对单个服务区的货箱集合，采用集合划分（Set Partitioning）算法精确求解全局最优组批方案
+    针对单个服务区的货箱集合，采用集合划分（Set Partitioning）位掩码动态规划精确求解组批方案。
+    对 S001 等货箱较多的服务区不再使用提前停止的启发式两批分支。
     objective 选项:
-      - 'min_sorties_then_energy': 先极小化架次，在极小架次下极小化总能耗（基准帕累托最优）
-      - 'min_energy': 极小化总运输能耗
-      - 'min_time': 极小化作业总耗时
+      - 'min_sorties_then_energy': (架次, 能耗, 时间) 词典序
+      - 'min_energy': (能耗, 架次, 时间) 词典序
+      - 'min_time': (时间, 架次, 能耗) 词典序
+      - 'min_sorties_then_time': (架次, 时间, 能耗) 词典序
     """
     boxes = [b for b in dl.CARGO_BOXES if b['service_id'] == svc_id]
     n = len(boxes)
-    tot_w = sum(b['weight'] for b in boxes)
-    tot_v = sum(b['volume'] for b in boxes)
-    
-    # 针对 S001（15箱，总重154kg，体积0.394m3）定制高效 2-划分快速精确搜索
-    if n > 8:
-        w_safe_c = compute_max_safe_payload('C', svc_id, eta)
-        v_max_c = dl.DRONE_PARAMS['C']['vol_max']
-        weights = [b['weight'] for b in boxes]
-        vols = [b['volume'] for b in boxes]
-        
-        best_diff = 999.0
-        best_combo = None
-        for r in range(5, 11):
-            for combo in itertools.combinations(range(n), r):
-                sw1 = sum(weights[i] for i in combo)
-                sv1 = sum(vols[i] for i in combo)
-                if sw1 <= w_safe_c and sv1 <= v_max_c:
-                    comp = tuple(i for i in range(n) if i not in combo)
-                    sw2 = sum(weights[i] for i in comp)
-                    sv2 = sum(vols[i] for i in comp)
-                    if sw2 <= w_safe_c and sv2 <= v_max_c:
-                        diff = abs(sw1 - sw2)
-                        if diff < best_diff:
-                            best_diff = diff
-                            best_combo = (combo, comp)
-                            if diff <= 2.0:
-                                break
-            if best_diff <= 2.0:
-                break
-                
-        combo, comp = best_combo
-        sub1 = [boxes[i] for i in combo]
-        sub2 = [boxes[i] for i in comp]
-        _, tw1, tv1, tf1, tt1, er1, soc1 = compute_batch_metrics('C', svc_id, sub1, eta)
-        _, tw2, tv2, tf2, tt2, er2, soc2 = compute_batch_metrics('C', svc_id, sub2, eta)
-        return [
-            {'indices': set(combo), 'machine': 'C', 'boxes': sub1, 'tot_w': tw1, 'tot_v': tv1, 't_flight': tf1, 't_total': tt1, 'e_round': er1, 'soc_end': soc1},
-            {'indices': set(comp), 'machine': 'C', 'boxes': sub2, 'tot_w': tw2, 'tot_v': tv2, 't_flight': tf2, 't_total': tt2, 'e_round': er2, 'soc_end': soc2}
-        ]
 
-    # 通用集合划分分支定界（适用 <= 8 箱）
+    if objective not in {'min_sorties_then_energy', 'min_energy', 'min_time', 'min_sorties_then_time'}:
+        raise ValueError(f'不支持的目标: {objective}')
+
+    # 枚举所有非空货箱子集和三种机型，形成集合划分候选列。
     valid_batches = []
     for r in range(1, n + 1):
         for combo in itertools.combinations(range(n), r):
@@ -181,68 +173,54 @@ def solve_service_spp(svc_id, eta=0.20, objective='min_sorties_then_energy'):
                         'soc_end': soc
                     })
 
-    best_sol = [999, 999999.0, 999999.0, None]
-    
-    # 排序优化分支定界剪枝（优先尝试大子集）
-    if objective == 'min_sorties_then_energy':
-        valid_batches.sort(key=lambda b: (len(b['indices']), -b['e_round']), reverse=True)
-    elif objective == 'min_energy':
-        valid_batches.sort(key=lambda b: (len(b['indices']), -b['e_round']), reverse=True)
-    else:  # min_sorties_then_time
-        valid_batches.sort(key=lambda b: (len(b['indices']), -b['t_total']), reverse=True)
+    # 用位掩码表示货箱集合。n=15 时状态数最多 2^15，避免启发式提前停止。
+    candidate_masks = []
+    by_first_bit = [[] for _ in range(n)]
+    for batch in valid_batches:
+        mask = 0
+        for i in batch['indices']:
+            mask |= 1 << i
+        batch['_mask'] = mask
+        idx = len(candidate_masks)
+        candidate_masks.append(batch)
+        for i in batch['indices']:
+            by_first_bit[i].append(idx)
 
-    # 极速贪婪启发式生成初始可行解作为紧上界 (Warm-start)
-    greedy_sol = []
-    uncovered_tmp = set(range(n))
-    while uncovered_tmp:
-        first_e = min(uncovered_tmp)
-        cands_tmp = [b for b in valid_batches if first_e in b['indices'] and b['indices'].issubset(uncovered_tmp)]
-        if not cands_tmp:
-            break
-        cands_tmp.sort(key=lambda b: len(b['indices']), reverse=True)
-        best_c = cands_tmp[0]
-        greedy_sol.append(best_c)
-        uncovered_tmp -= best_c['indices']
-        
-    if not uncovered_tmp:
-        best_sol = [len(greedy_sol), sum(b['e_round'] for b in greedy_sol), sum(b['t_total'] for b in greedy_sol), list(greedy_sol)]
-    else:
-        best_sol = [999, 999999.0, 999999.0, None]
+    def objective_key(raw):
+        count, energy, total_time = raw
+        if objective == 'min_sorties_then_energy':
+            return (count, energy, total_time)
+        if objective == 'min_energy':
+            return (energy, count, total_time)
+        if objective == 'min_time':
+            return (total_time, count, energy)
+        return (count, total_time, energy)
 
-    def branch_and_bound(uncovered, cur_sorties, cur_e, cur_t, cur_batches):
-        if objective in ['min_sorties_then_energy', 'min_sorties_then_time']:
-            if cur_sorties > best_sol[0]:
-                return
-            if objective == 'min_sorties_then_energy' and cur_sorties == best_sol[0] and cur_e >= best_sol[1]:
-                return
-            if objective == 'min_sorties_then_time' and cur_sorties == best_sol[0] and cur_t >= best_sol[2]:
-                return
-        elif objective == 'min_energy':
-            if cur_e >= best_sol[1]:
-                return
-                
-        if not uncovered:
-            best_sol[0] = cur_sorties
-            best_sol[1] = cur_e
-            best_sol[2] = cur_t
-            best_sol[3] = list(cur_batches)
-            return
-            
-        first_elem = min(uncovered)
-        cands = [b for b in valid_batches if first_elem in b['indices'] and b['indices'].issubset(uncovered)]
-        for c in cands:
-            branch_and_bound(
-                uncovered - c['indices'],
-                cur_sorties + 1,
-                cur_e + c['e_round'],
-                cur_t + c['t_total'],
-                cur_batches + [c]
-            )
-            
-    branch_and_bound(set(range(n)), 0, 0.0, 0.0, [])
-    if best_sol[3] is None:
-        raise RuntimeError(f"服务区 {svc_id} 未能求出可行精确组批划分！")
-    return best_sol[3]
+    @functools.lru_cache(maxsize=None)
+    def solve_mask(mask):
+        if mask == 0:
+            return (0, 0.0, 0.0), ()
+        first_bit = (mask & -mask).bit_length() - 1
+        best_raw = None
+        best_choice = None
+        for candidate_idx in by_first_bit[first_bit]:
+            candidate = candidate_masks[candidate_idx]
+            candidate_mask = candidate['_mask']
+            if candidate_mask & mask != candidate_mask:
+                continue
+            sub_raw, sub_choice = solve_mask(mask ^ candidate_mask)
+            raw = (sub_raw[0] + 1,
+                   sub_raw[1] + candidate['e_round'],
+                   sub_raw[2] + candidate['t_total'])
+            if best_raw is None or objective_key(raw) < objective_key(best_raw):
+                best_raw = raw
+                best_choice = (candidate_idx,) + sub_choice
+        if best_raw is None:
+            raise RuntimeError(f"服务区 {svc_id} 未能求出可行精确组批划分！")
+        return best_raw, best_choice
+
+    _, choice = solve_mask((1 << n) - 1)
+    return [{k: v for k, v in candidate_masks[i].items() if k != '_mask'} for i in choice]
 
 def solve_q1_all_batches(eta=0.20, objective='min_sorties_then_energy'):
     """求解所有 15 个服务区的全局最优组批方案并生成输出数据框"""
@@ -287,8 +265,12 @@ if __name__ == '__main__':
         m_counts = df_res['机型编号'].value_counts().to_dict()
         print(f"目标 [{obj:24s}]: 总架次 = {tot_sorties} 架次, 总能耗 = {tot_energy:.3f} kWh, 累计作业耗时 = {tot_time:.1f} s, 机型构成 = {m_counts}")
     
-    # 导出基准帕累托最优方案
+    # 导出基准词典序方案
     df_final = solve_q1_all_batches(eta=0.20, objective='min_sorties_then_energy')
     os.makedirs('results', exist_ok=True)
     df_final.to_csv('results/Q1_单点组批方案.csv', index=False, encoding='utf-8-sig')
+    sensitivity = sensitivity_analysis_eta()
+    sensitivity['summary'].to_csv('results/Q1_敏感性_eta_汇总.csv', index=False, encoding='utf-8-sig')
+    sensitivity['payload_table'].to_csv('results/Q1_敏感性_eta_安全载荷.csv', index=False, encoding='utf-8-sig')
     print(f"\n已将精确优化后的问题一基准组批方案导出至 results/Q1_单点组批方案.csv (共 {len(df_final)} 架次, 总能耗 {df_final['架次能耗（kWh）'].sum():.3f} kWh)")
+    print("已将每个 eta 重新求解后的敏感性结果导出至 results/Q1_敏感性_eta_汇总.csv 和 results/Q1_敏感性_eta_安全载荷.csv")
