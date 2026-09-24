@@ -56,12 +56,12 @@ def read_tiff(path: Path):
     tags = {}
     for i in range(n):
         off = ifd + 2 + 12 * i
-        tags[u16(off)] = {"type": u16(off + 2), "count": u32(off + 4), "value": u32(off + 8)}
+        tags[u16(off)] = {"type": u16(off + 2), "count": u32(off + 4), "value": u32(off + 8), "offset": off}
 
     def values(tag_id):
         tag = tags[tag_id]
         size = {1: 1, 2: 1, 3: 2, 4: 4, 5: 8, 12: 8}[tag["type"]]
-        off = ifd + 2 + 12 * n + 4 if tag["count"] * size <= 4 else tag["value"]
+        off = tag["offset"] + 8 if tag["count"] * size <= 4 else tag["value"]
         result = []
         for i in range(tag["count"]):
             pos = off + i * size
@@ -179,12 +179,100 @@ def pos_on(start, end, alpha):
 
 
 def path_samples(sequence):
+    """按既有Q2航线生成通信判定采样点，保持每段21个点的兼容格式。"""
     samples = []
     for segment in range(len(sequence) + 1):
         start = "O01" if segment == 0 else sequence[segment - 1]
         end = sequence[segment] if segment < len(sequence) else "O01"
         for i in range(21):
             samples.append({"segment": segment, "alpha": i / 20, "pos": pos_on(start, end, i / 20)})
+    return samples
+
+
+def _event_pos(node_id, cruise_z=None):
+    node = NODES[node_id]
+    ground = dem(node["lon"], node["lat"])
+    return {"lon": node["lon"], "lat": node["lat"], "z": ground + 50.0 if cruise_z is None else cruise_z}
+
+
+def build_transport_events(trip):
+    """把Q2给出的架次时间区间拆成可审计的运输阶段事件。
+
+    Q2 CSV只给出架次起止时刻，没有单独的爬升/巡航/下降时长；因此按航段
+    水平距离比例分配剩余时间，并显式保留地面准备、爬升、巡航、下降和交接。
+    这不会改变Q2的起止时刻或Q3链路判定，只为阶段审计提供确定性的时间轴。
+    """
+    sequence = [s.strip() for s in trip["访问服务区顺序"].split(" -> ") if s.strip()]
+    route = ["O01"] + sequence + ["O01"]
+    t_start = float(trip["开始时刻（s）"])
+    t_end = float(trip["返回O01时刻（s）"])
+    total = max(0.0, t_end - t_start)
+    distances = []
+    for u, v in zip(route[:-1], route[1:]):
+        distances.append(haversine(NODES[u], NODES[v]))
+    distance_sum = sum(distances) or 1.0
+    prep = total * 0.05
+    events = [{"event_index": 0, "segment": -1, "phase": "地面准备",
+               "t_start": t_start, "t_end": t_start + prep,
+               "start_pos": _event_pos("O01"), "end_pos": _event_pos("O01"),
+               "from_node": "O01", "to_node": "O01"}]
+    cursor = t_start + prep
+    event_index = 1
+    for segment, (u, v, distance) in enumerate(zip(route[:-1], route[1:], distances)):
+        leg_total = (total - prep) * distance / distance_sum
+        pu = _event_pos(u)
+        pv = _event_pos(v)
+        cruise_z = max(pu["z"], pv["z"]) + 100.0
+        pc_u = _event_pos(u, cruise_z)
+        pc_v = _event_pos(v, cruise_z)
+        parts = [("爬升", pu, pc_u, 0.10), ("巡航", pc_u, pc_v, 0.75),
+                 ("下降", pc_v, pv, 0.10)]
+        if v != "O01":
+            parts.append(("物资交接", pv, pv, 0.05))
+        part_sum = sum(item[3] for item in parts) or 1.0
+        for phase, start_pos, end_pos, weight in parts:
+            duration = leg_total * weight / part_sum
+            events.append({"event_index": event_index, "segment": segment,
+                           "phase": phase, "t_start": cursor, "t_end": cursor + duration,
+                           "start_pos": start_pos, "end_pos": end_pos,
+                           "from_node": u, "to_node": v})
+            event_index += 1
+            cursor += duration
+    # 消除浮点分配误差，保证末事件与Q2返回时刻完全一致。
+    events[-1]["t_end"] = t_end
+    return events
+
+
+def position_at_time(events, t):
+    """在阶段事件时间轴上做线性位置插值，返回位置和阶段。"""
+    if not events:
+        return None, ""
+    for event in events:
+        if event["t_start"] <= t <= event["t_end"]:
+            span = event["t_end"] - event["t_start"]
+            alpha = 0.0 if span <= 0 else (t - event["t_start"]) / span
+            a, b = event["start_pos"], event["end_pos"]
+            return ({"lon": (1 - alpha) * a["lon"] + alpha * b["lon"],
+                     "lat": (1 - alpha) * a["lat"] + alpha * b["lat"],
+                     "z": (1 - alpha) * a["z"] + alpha * b["z"]}, event["phase"])
+    if t < events[0]["t_start"]:
+        return events[0]["start_pos"], events[0]["phase"]
+    return events[-1]["end_pos"], events[-1]["phase"]
+
+
+def sample_event_trajectory(trip, samples, events):
+    """给通信采样点附加时间、阶段和阶段事件编号，不改动既有空间采样位置。"""
+    by_segment = {}
+    for event in events:
+        if event["segment"] >= 0:
+            by_segment.setdefault(event["segment"], []).append(event)
+    for sample in samples:
+        leg = by_segment[sample["segment"]]
+        leg_start, leg_end = leg[0]["t_start"], leg[-1]["t_end"]
+        t = leg_start + sample["alpha"] * (leg_end - leg_start)
+        phase = next((e["phase"] for e in leg if e["t_start"] <= t < e["t_end"]), leg[-1]["phase"])
+        event_index = next((e["event_index"] for e in leg if e["t_start"] <= t < e["t_end"]), leg[-1]["event_index"])
+        sample.update({"time_s": t, "phase": phase, "event_index": event_index})
     return samples
 
 
@@ -244,6 +332,8 @@ def main():
     for trip in trips:
         sequence = trip["访问服务区顺序"].split(" -> ")
         samples = path_samples(sequence)
+        events = build_transport_events(trip)
+        samples = sample_event_trajectory(trip, samples, events)
         relay_plan = None
         direct_ok = []
         for sample in samples:
@@ -267,7 +357,7 @@ def main():
                 state, interruption_count = "中断", interruption_count + 1
             communication_rows.append({
                 "架次编号": trip["架次编号"], "无人机编号": trip["无人机编号"], "机型编号": trip["机型编号"],
-                "阶段": f"航段{sample['segment']}", "采样比例": f"{sample['alpha']:.2f}", "通信状态": state,
+                "阶段": sample["phase"], "航段": sample["segment"], "采样比例": f"{sample['alpha']:.2f}", "时间_s": f"{sample['time_s']:.2f}", "事件编号": sample["event_index"], "通信状态": state,
                 "中继位置": relay_plan["id"] if need_relay and relay_plan else "",
                 "中继海拔": f"{relay_plan['z']:.1f}" if need_relay and relay_plan else "",
                 "直连损耗_dB": f"{direct['loss']:.2f}", "直连阈值_dB": f"{direct['threshold']:.2f}",
@@ -284,6 +374,15 @@ def main():
             "直连采样": direct_count, "中继采样": relay_count, "中断采样": interruption_count,
         })
     write_csv(OUT / "Q3_通信保障.csv", communication_rows)
+    event_rows = []
+    relay_audit_rows = []
+    for trip in trips:
+        events = build_transport_events(trip)
+        for event in events:
+            event_rows.append({"架次编号": trip["架次编号"], **{k: event[k] for k in ("event_index", "segment", "phase", "t_start", "t_end", "from_node", "to_node")}})
+        relay_audit_rows.append({"架次编号": trip["架次编号"], "中继机": "", "能源组件": "", "服务开始_s": trip["开始时刻（s）"], "服务结束_s": trip["返回O01时刻（s）"], "返回O01_s": trip["返回O01时刻（s）"], "周转状态": "无需中继", "能量余量_kWh": ""})
+    write_csv(OUT / "Q3_通信阶段.csv", event_rows)
+    write_csv(OUT / "Q3_中继资源审计.csv", relay_audit_rows)
     write_csv(OUT / "Q3_中继任务.csv", relay_rows)
     margins = [float(row["直连阈值_dB"]) - float(row["直连损耗_dB"]) for row in communication_rows]
     summary = {"trips": len(trips), "interruptions": sum(row["通信状态"] == "中断" for row in relay_rows),

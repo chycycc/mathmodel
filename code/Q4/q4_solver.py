@@ -25,6 +25,48 @@ def charge_end(row):
     frac=((0.9-soc)/0.9*0.65+0.35) if soc<0.9 else ((1-soc)/0.1*0.35)
     return float(row['返回O01时刻（s）'])+frac*PARAM[m]['t']+1
 
+
+
+def validate_partition(groups, trips):
+    """校验服务区唯一归属及架次不可拆分，避免跨组重复计数。"""
+    owner = {}
+    for idx, group in enumerate(groups, 1):
+        for service in group:
+            if service in owner:
+                raise ValueError(f"服务区{service}同时属于组{owner[service]}和组{idx}")
+            owner[service] = idx
+    violations = []
+    assignment = {}
+    for row in trips:
+        seq = [s.strip() for s in row['访问服务区顺序'].split(' -> ') if s.strip()]
+        hits = [idx for idx, group in enumerate(groups, 1) if seq and all(s in group for s in seq)]
+        assignment[row['架次编号']] = hits
+        if len(hits) != 1:
+            violations.append({'架次编号': row['架次编号'], '服务区': seq, '匹配组': hits})
+    if violations:
+        raise ValueError('存在跨组或未归属架次：' + json.dumps(violations, ensure_ascii=False))
+    return assignment
+
+
+def relay_peak(relay_rows, trip_ids):
+    """按中继任务时间区间统计中继机与能源组件峰值。"""
+    selected = [r for r in relay_rows if r.get('架次编号') in trip_ids and str(r.get('需要中继', '')).lower() in ('true', '1', '是')]
+    intervals = []
+    for row in selected:
+        start = float(row.get('服务开始', row.get('开始时刻（s）', 0)))
+        end = float(row.get('服务结束', row.get('返回O01时刻（s）', start)))
+        intervals.append({'start': start, 'end': end})
+    events = []
+    for item in intervals:
+        events.extend(((item['start'], 1), (item['end'], -1)))
+    events.sort(key=lambda x: (x[0], x[1]))
+    cur = peak = 0
+    for _, delta in events:
+        cur += delta
+        peak = max(peak, cur)
+    return peak, peak
+
+
 def group_rows(group,trips):
     out=[]
     for row in trips:
@@ -55,9 +97,15 @@ def main():
     schemes={'K2_A':[big,{'S010','S014'}], 'K2_B':[big|{'S010'},{'S014'}], 'K2_C':[big|{'S014'},{'S010'}], 'K3':[big,{'S010'},{'S014'}]}
     summary={}; rows=[]
     for name,groups in schemes.items():
+        validate_partition(groups, trips)
         group_results=[]
         for idx,group in enumerate(groups,1):
-            ts=group_rows(group,trips); r=resources(ts); r.update({'方案':name,'组编号':idx,'服务区':'|'.join(sorted(group))})
+            ts=group_rows(group,trips); r=resources(ts)
+            relay_ids = {row['架次编号'] for row in ts}
+            r['中继无人机需求'], r['中继能源组件需求'] = relay_peak(relays, relay_ids)
+            r['中继无人机缺口'] = max(0, r['中继无人机需求'] - INV['R']['u'])
+            r['中继能源组件缺口'] = max(0, r['中继能源组件需求'] - INV['R']['b'])
+            r.update({'方案':name,'组编号':idx,'服务区':'|'.join(sorted(group))})
             group_results.append(r)
             flat={'方案':name,'组编号':idx,'服务区':r['服务区'],'架次':r['架次'],'完工时间_s':r['完工时间'],'工作量_s':r['工作量秒'],'能耗_kWh':r['能耗']}
             for m in ('A','B','C'):

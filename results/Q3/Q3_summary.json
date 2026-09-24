@@ -1,11 +1,11 @@
 {
   "trips": 24,
   "interruptions": 0,
-  "relayTrips": 0,
-  "directTrips": 24,
+  "relayTrips": 23,
+  "directTrips": 1,
   "candidateCount": 363,
   "sampleCount": 1344,
-  "minDirectMarginDb": 3.769999999999996,
-  "minDirectLossDb": 79.85,
-  "maxDirectLossDb": 118.23
+  "minDirectMarginDb": -6.240000000000009,
+  "minDirectLossDb": 69.79,
+  "maxDirectLossDb": 128.24
 }
