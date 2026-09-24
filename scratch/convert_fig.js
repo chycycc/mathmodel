@@ -1,0 +1,1 @@
+const fs=require('fs');const {execFileSync}=require('child_process');for(let n of ['fig_Q3通信状态','fig_Q4工作量极差']){try{execFileSync('convert',[ 'D:/python project/mathmodel/figures/'+n+'.svg','D:/python project/mathmodel/figures/'+n+'.pdf']);console.log(n+' pdf ok')}catch(e){console.log(n+' pdf failed '+e.message)}}

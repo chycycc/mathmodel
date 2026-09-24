@@ -1,0 +1,1 @@
+const fs=require('fs'),zlib=require('zlib');const b=fs.readFileSync('D:/python project/mathmodel/数模题目/D题/数据/镇龙乡地理空间数据/镇龙乡及周边地理数据/数字高程模型数据（DEM）/镇龙乡及周边30米DEM.mat');const n=b.readUInt32LE(132),c=zlib.inflateSync(b.subarray(136,136+n));console.log(c.length,Array.from(c.subarray(0,128)));
