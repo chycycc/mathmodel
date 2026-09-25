@@ -9,3 +9,9 @@ Thumbs.db
 .idea/
 Q3_Q4提示词_优化版.md
 user_global.md
+
+# V1 历史图表归档压缩包与临时备份 (防止提交)
+archive/
+*.zip
+figures_v1/
+figures_v2/

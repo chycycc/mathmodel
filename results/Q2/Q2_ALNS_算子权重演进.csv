@@ -1,0 +1,11 @@
+﻿operator,initial_weight,final_weight
+"Shaw破坏
+(时空关联)",0.2,0.34
+"Worst破坏
+(边际高代价)",0.2,0.28
+"Random破坏
+(随机扰动)",0.2,0.12
+"Regret-2修复
+(两阶段遗憾)",0.2,0.36
+"Greedy修复
+(就近贪婪)",0.2,0.14
