@@ -26,7 +26,8 @@ def run_q4_audit():
     all_s_nodes = set(f"S{i:03d}" for i in range(1, 16))
     
     # 读取运输架次
-    df_trips = pd.read_csv('results/Q2_运输架次.csv')
+    p_q2_csv = 'results/Q2/Q2_运输架次.csv' if os.path.exists('results/Q2/Q2_运输架次.csv') else 'results/Q2_运输架次.csv'
+    df_trips = pd.read_csv(p_q2_csv)
     
     audit_rows = []
     

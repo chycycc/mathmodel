@@ -11,7 +11,7 @@ import openpyxl
 import pandas as pd
 
 _CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-_WORKSPACE_ROOT = os.path.dirname(_CURRENT_DIR)
+_WORKSPACE_ROOT = os.path.abspath(os.path.join(_CURRENT_DIR, '..', '..'))
 sys.path.insert(0, _WORKSPACE_ROOT)
 
 sys.stdout.reconfigure(encoding='utf-8')
@@ -25,7 +25,10 @@ def export_full_excel():
     
     # 1. Sheet: Q1_单点组批
     ws_q1 = wb['Q1_单点组批']
-    df_q1 = pd.read_csv(os.path.join(_WORKSPACE_ROOT, 'results', 'Q1_单点组批方案.csv'))
+    p_q1 = os.path.join(_WORKSPACE_ROOT, 'results', 'Q1', 'Q1_单点组批方案.csv')
+    if not os.path.exists(p_q1):
+        p_q1 = os.path.join(_WORKSPACE_ROOT, 'results', 'Q1_单点组批方案.csv')
+    df_q1 = pd.read_csv(p_q1)
     # 清空第 2 行以下
     while ws_q1.max_row > 1:
         ws_q1.delete_rows(2)
@@ -35,7 +38,10 @@ def export_full_excel():
     
     # 2. Sheet: Q2_运输架次
     ws_q2_t = wb['Q2_运输架次']
-    df_q2_t = pd.read_csv(os.path.join(_WORKSPACE_ROOT, 'results', 'Q2_运输架次.csv'))
+    p_q2_t = os.path.join(_WORKSPACE_ROOT, 'results', 'Q2', 'Q2_运输架次.csv')
+    if not os.path.exists(p_q2_t):
+        p_q2_t = os.path.join(_WORKSPACE_ROOT, 'results', 'Q2_运输架次.csv')
+    df_q2_t = pd.read_csv(p_q2_t)
     while ws_q2_t.max_row > 1:
         ws_q2_t.delete_rows(2)
     for row in df_q2_t.itertuples(index=False):
@@ -44,7 +50,10 @@ def export_full_excel():
     
     # 3. Sheet: Q2_逐箱交付
     ws_q2_b = wb['Q2_逐箱交付']
-    df_q2_b = pd.read_csv(os.path.join(_WORKSPACE_ROOT, 'results', 'Q2_逐箱交付.csv'))
+    p_q2_b = os.path.join(_WORKSPACE_ROOT, 'results', 'Q2', 'Q2_逐箱交付.csv')
+    if not os.path.exists(p_q2_b):
+        p_q2_b = os.path.join(_WORKSPACE_ROOT, 'results', 'Q2_逐箱交付.csv')
+    df_q2_b = pd.read_csv(p_q2_b)
     while ws_q2_b.max_row > 1:
         ws_q2_b.delete_rows(2)
     for row in df_q2_b.itertuples(index=False):

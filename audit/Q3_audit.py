@@ -137,7 +137,8 @@ def run_q3_audit():
     })
     
     # 8. 联合任务完工时间与能耗
-    q2_trips_df = pd.read_csv('results/Q2_运输架次.csv')
+    p_q2_csv = 'results/Q2/Q2_运输架次.csv' if os.path.exists('results/Q2/Q2_运输架次.csv') else 'results/Q2_运输架次.csv'
+    q2_trips_df = pd.read_csv(p_q2_csv)
     t_trans_max = q2_trips_df['返回O01时刻（s）'].max()
     t_relay_max = df_relays['返回O01时刻（s）'].max()
     joint_time = max(t_trans_max, t_relay_max)

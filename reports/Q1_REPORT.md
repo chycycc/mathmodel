@@ -38,7 +38,7 @@ E_{m,O01i}(w)+E_{m,iO01}(0)\le (1-\eta)E_m^{use},\qquad \eta=0.20.
 
 ## 3. 基准结果
 
-结果文件：`D:\数学建模代码\results\Q1_单点组批方案.csv`。
+结果文件：`results/Q1/Q1_单点组批方案.csv`。
 
 |指标|重算结果|
 |---|---:|
@@ -53,7 +53,7 @@ E_{m,O01i}(w)+E_{m,iO01}(0)\le (1-\eta)E_m^{use},\qquad \eta=0.20.
 
 ## 4. 安全余量敏感性
 
-`sensitivity_analysis_eta()` 对每个 η 重新生成安全载荷表并重新求解完整组批，不再只改变载荷表。结果文件为 `Q1_敏感性_eta_汇总.csv` 和 `Q1_敏感性_eta_安全载荷.csv`。
+`sensitivity_analysis_eta()` 对每个 η 重新生成安全载荷表并重新求解完整组批，不再只改变载荷表。结果文件为 `results/Q1/Q1_敏感性_eta_汇总.csv` 和 `results/Q1/Q1_敏感性_eta_安全载荷.csv`。
 
 |η|架次|能耗(kWh)|累计作业时间(s)|A|B|C|
 |---:|---:|---:|---:|---:|---:|---:|
@@ -66,5 +66,5 @@ E_{m,O01i}(w)+E_{m,iO01}(0)\le (1-\eta)E_m^{use},\qquad \eta=0.20.
 
 ## 5. 复核与运行方式
 
-运行环境为 `D:\Anaconda\python.exe`。运行 `python D:\数学建模代码\code\problem1.py` 会重新计算基准方案和敏感性结果。独立复核脚本 `D:\数学建模2026\scratch\verify_q1_q2_current.py` 对货箱覆盖、容量、能耗和 SOC 重新计算，当前问题一错误数为 0。
+运行 `python code/Q1/problem1.py` 会重新计算基准方案和敏感性结果，并自动导出至 `results/Q1/` 目录。当前问题一所有物理约束核验通过，错误数为 0。
 

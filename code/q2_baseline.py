@@ -25,9 +25,14 @@ def parse_and_verify_q2(results_dir=None):
     if results_dir is None:
         results_dir = os.path.join(_WORKSPACE_ROOT, 'results')
         
-    fp_trips = os.path.join(results_dir, 'Q2_运输架次.csv')
-    fp_boxes = os.path.join(results_dir, 'Q2_逐箱交付.csv')
-    
+    fp_trips = os.path.join(results_dir, 'Q2', 'Q2_运输架次.csv')
+    if not os.path.exists(fp_trips):
+        fp_trips = os.path.join(results_dir, 'Q2_运输架次.csv')
+        
+    fp_boxes = os.path.join(results_dir, 'Q2', 'Q2_逐箱交付.csv')
+    if not os.path.exists(fp_boxes):
+        fp_boxes = os.path.join(results_dir, 'Q2_逐箱交付.csv')
+        
     if not os.path.exists(fp_trips) or not os.path.exists(fp_boxes):
         raise FileNotFoundError(f"未找到 Q2 结果文件: {fp_trips} 或 {fp_boxes}")
         

@@ -12,7 +12,7 @@ import pandas as pd
 
 # 自适应工程工作区根路径
 _CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-_WORKSPACE_ROOT = os.path.dirname(_CURRENT_DIR)
+_WORKSPACE_ROOT = os.path.abspath(os.path.join(_CURRENT_DIR, "..", ".."))
 TEMPLATE_PATH = os.path.join(_WORKSPACE_ROOT, "数模题目", "D题", "结果提交模板.xlsx")
 RESULTS_DIR = os.path.join(_WORKSPACE_ROOT, "results")
 OUTPUT_PATH = os.path.join(RESULTS_DIR, "结果提交模板.xlsx")

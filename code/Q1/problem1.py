@@ -17,7 +17,9 @@ import functools
 import pandas as pd
 import numpy as np
 
-sys.path.insert(0, os.path.dirname(__file__))
+_CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+_WORKSPACE_ROOT = os.path.abspath(os.path.join(_CURRENT_DIR, "..", ".."))
+sys.path.insert(0, os.path.join(_WORKSPACE_ROOT, "code"))
 import data_loader as dl
 
 @functools.lru_cache(maxsize=None)
@@ -267,10 +269,11 @@ if __name__ == '__main__':
     
     # 导出基准词典序方案
     df_final = solve_q1_all_batches(eta=0.20, objective='min_sorties_then_energy')
-    os.makedirs('results', exist_ok=True)
-    df_final.to_csv('results/Q1_单点组批方案.csv', index=False, encoding='utf-8-sig')
+    out_dir = os.path.join(_WORKSPACE_ROOT, 'results', 'Q1')
+    os.makedirs(out_dir, exist_ok=True)
+    df_final.to_csv(os.path.join(out_dir, 'Q1_单点组批方案.csv'), index=False, encoding='utf-8-sig')
     sensitivity = sensitivity_analysis_eta()
-    sensitivity['summary'].to_csv('results/Q1_敏感性_eta_汇总.csv', index=False, encoding='utf-8-sig')
-    sensitivity['payload_table'].to_csv('results/Q1_敏感性_eta_安全载荷.csv', index=False, encoding='utf-8-sig')
+    sensitivity['summary'].to_csv(os.path.join(out_dir, 'Q1_敏感性_eta_汇总.csv'), index=False, encoding='utf-8-sig')
+    sensitivity['payload_table'].to_csv(os.path.join(out_dir, 'Q1_敏感性_eta_安全载荷.csv'), index=False, encoding='utf-8-sig')
     print(f"\n已将精确优化后的问题一基准组批方案导出至 results/Q1_单点组批方案.csv (共 {len(df_final)} 架次, 总能耗 {df_final['架次能耗（kWh）'].sum():.3f} kWh)")
     print("已将每个 eta 重新求解后的敏感性结果导出至 results/Q1_敏感性_eta_汇总.csv 和 results/Q1_敏感性_eta_安全载荷.csv")
