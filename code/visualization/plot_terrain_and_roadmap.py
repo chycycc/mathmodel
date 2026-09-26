@@ -13,7 +13,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import matplotlib.lines as mlines
-from matplotlib.colors import LightSource, Normalize
+from matplotlib.colors import LightSource, Normalize, LinearSegmentedColormap
 from matplotlib.cm import ScalarMappable
 
 # 引入项目基础路径与数据模块
@@ -28,61 +28,100 @@ os.makedirs(FIGURES_DIR, exist_ok=True)
 
 
 def plot_fig1():
-    """图1：山区真实地形阴影晕渲(Hillshade)与无人机救援网络拓扑图 (带标准物理比例尺)"""
+    """图1：高精度 2D GIS 矢量等高线测绘与应急救援网络拓扑图 (全矢量锐利无模糊，带标准物理比例尺与分级生命线)"""
     apply_f4p_style(font_size=7.5)
     fig, ax = plt.subplots(figsize=(7.8, 5.4))
     
-    step = 2  # 高分辨率平滑采样
-    lons_sub = DEM_LONS[::step]
-    lats_sub = DEM_LATS[::step]
-    dem_sub = DEM_GRID[::step, ::step]
-    
-    # 1. 真实山体阴影晕渲 (Hillshade) 计算，呈现 Google Earth 级真实三维地貌起伏
-    ls = LightSource(azdeg=315, altdeg=45)
-    rgb_shaded = ls.shade(dem_sub, cmap=plt.cm.gist_earth, blend_mode='overlay', 
-                          vert_exag=1.8, dx=30, dy=30, vmin=dem_sub.min(), vmax=dem_sub.max())
-    
-    # 渲染带阴影晕渲的地形底图
-    extent = [DEM_LONS.min(), DEM_LONS.max(), DEM_LATS.min(), DEM_LATS.max()]
-    ax.imshow(rgb_shaded, extent=extent, origin='lower', aspect='auto', zorder=1)
-    
-    # 叠加极细等高线辅助线，提供精确海拔参考
-    levels = np.linspace(dem_sub.min(), dem_sub.max(), 32)
-    ax.contour(lons_sub, lats_sub, dem_sub, levels=levels[::4], colors='black', alpha=0.15, linewidths=0.45, zorder=2)
-    
-    # 配套标准高程渐变色条
-    norm = Normalize(vmin=dem_sub.min(), vmax=dem_sub.max())
-    sm = ScalarMappable(norm=norm, cmap=plt.cm.gist_earth)
-    sm.set_array([])
-    cbar = fig.colorbar(sm, ax=ax, fraction=0.035, pad=0.02)
-    cbar.set_label('地表高程 / 海拔 (m)')
+    # 1. 提取局部高精度 ROI (全分辨率 30m 真实网格，拒绝全局粗采样与平滑模糊)
+    margin_lon = 0.016
+    margin_lat = 0.014
+    all_lons = [n['lon'] for n in NODES.values()]
+    all_lats = [n['lat'] for n in NODES.values()]
+    min_lon, max_lon = min(all_lons) - margin_lon, max(all_lons) + margin_lon
+    min_lat, max_lat = min(all_lats) - margin_lat, max(all_lats) + margin_lat
+
+    lon_mask = (DEM_LONS >= min_lon) & (DEM_LONS <= max_lon)
+    lat_mask = (DEM_LATS >= min_lat) & (DEM_LATS <= max_lat)
+
+    sub_lons = DEM_LONS[lon_mask]
+    sub_lats = DEM_LATS[lat_mask]
+    sub_dem = DEM_GRID[np.ix_(lat_mask, lon_mask)].copy()
+
+    LON_2D, LAT_2D = np.meshgrid(sub_lons, sub_lats)
+
+    # 2. 地理测绘标准等高线色阶与分层设色 (通透清爽、大地植被自然色阶)
+    levels = np.arange(100, 780, 40)
+    topo_palette = [
+        '#F4F8F3', '#E5EFE2', '#D3E5CF', '#BFDCB9', '#ACD2A4', 
+        '#E6DDAE', '#DEC98E', '#D1B170', '#C29858', '#AE7E47', 
+        '#99673C', '#835334', '#6D402C', '#583025'
+    ]
+    cmap_clean = LinearSegmentedColormap.from_list('clean_topo', topo_palette, N=len(levels)-1)
+
+    # 纯矢量分层设色底图
+    cf = ax.contourf(LON_2D, LAT_2D, sub_dem, levels=levels, cmap=cmap_clean, alpha=0.90, zorder=1)
+
+    # 锐利等高线轮廓 (首曲线 0.45pt，计曲线 0.85pt 并注记高程)
+    c_lines = ax.contour(LON_2D, LAT_2D, sub_dem, levels=levels, colors='#64748B', linewidths=0.45, alpha=0.55, zorder=2)
+    c_index = ax.contour(LON_2D, LAT_2D, sub_dem, levels=levels[::3], colors='#334155', linewidths=0.85, alpha=0.75, zorder=2)
+    ax.clabel(c_index, inline=True, fmt='%1.0fm', fontsize=5.2, colors='#334155')
+
+    # 高程渐变色条
+    cbar = fig.colorbar(cf, ax=ax, fraction=0.035, pad=0.02, ticks=levels[::2])
+    cbar.set_label('地表高程 / 海拔 (m)', weight='bold')
     cbar.ax.tick_params(labelsize=6.8)
-    
+
     o_lon = NODES['O01']['lon']
     o_lat = NODES['O01']['lat']
-    
-    # 辐射辅助连接线
+
+    # 人口等级函数 (四级感知阶梯，双重冗余编码)
+    def get_pop_tier(pop):
+        if pop < 50:
+            return {'tier': 'I', 'size': 45, 'color': '#0284C7', 'label': '微型聚落 (<50人)'}
+        elif pop <= 150:
+            return {'tier': 'II', 'size': 95, 'color': '#D97706', 'label': '小型村落 (50-150人)'}
+        elif pop <= 400:
+            return {'tier': 'III', 'size': 180, 'color': '#EA580C', 'label': '中型村落 (150-400人)'}
+        else:
+            return {'tier': 'IV', 'size': 380, 'color': '#DC2626', 'label': '特大聚集区 (2100人)'}
+
+    # 3. 救援拓扑连接线渲染 (彻底解决共线重叠，确保 15 条生命线皆清晰独立)
     for nid, node in NODES.items():
         if nid == 'O01':
             continue
-        ax.plot([o_lon, node['lon']], [o_lat, node['lat']], 
-                color=F4P_PALETTE['neutral_dark'], linestyle=':', linewidth=0.6, alpha=0.45, zorder=2)
-                
-    pops = [node['pop'] for nid, node in NODES.items() if nid != 'O01']
-    min_pop, max_pop = min(pops), max(pops)
-    
-    c_node = F4P_PALETTE['blue_main']
+        
+        # 针对特大核心 S001 (2100人)：专属一级核心主通道（加粗白底 + 强对比高亮实线，直抵红心）
+        if nid == 'S001':
+            ax.plot([o_lon, node['lon']], [o_lat, node['lat']], color='#FFFFFF', lw=3.8, zorder=4)
+            ax.plot([o_lon, node['lon']], [o_lat, node['lat']], color='#1E40AF', lw=2.0, linestyle='-', zorder=5)
+        elif nid == 'S009':
+            # S009 (45人) 恰好与 S001 处于同一直线，为空域安全与视觉区分，航线经由东侧山谷通道略作分流
+            mid_lon = (o_lon + node['lon']) / 2.0 + 0.0062
+            mid_lat = (o_lat + node['lat']) / 2.0 - 0.0030
+            t = np.linspace(0, 1, 30)
+            curve_lon = (1 - t)**2 * o_lon + 2 * (1 - t) * t * mid_lon + t**2 * node['lon']
+            curve_lat = (1 - t)**2 * o_lat + 2 * (1 - t) * t * mid_lat + t**2 * node['lat']
+            
+            ax.plot(curve_lon, curve_lat, color='#FFFFFF', lw=2.4, zorder=3)
+            ax.plot(curve_lon, curve_lat, color='#1D4ED8', lw=1.2, linestyle='--', dashes=(4, 2.5), zorder=4)
+        else:
+            # 其他 13 个常规辐射分支
+            ax.plot([o_lon, node['lon']], [o_lat, node['lat']], color='#FFFFFF', lw=2.4, zorder=3)
+            ax.plot([o_lon, node['lon']], [o_lat, node['lat']], color='#1D4ED8', lw=1.2, linestyle='--', dashes=(4, 2.5), zorder=4)
+
+    # 4. 受灾节点散点与智能标签排布
     for nid, node in NODES.items():
         if nid == 'O01':
             continue
-        pop = node['pop']
-        # 散点面积与人口对应 (40 ~ 180)
-        size = 40 + (pop - min_pop) / (max_pop - min_pop) * 140
-        ax.scatter(node['lon'], node['lat'], s=size, color=c_node, edgecolors='white', 
-                   linewidth=0.9, alpha=0.92, zorder=4)
-                   
+        tier = get_pop_tier(node['pop'])
+        ax.scatter(node['lon'], node['lat'], s=tier['size'], color=tier['color'], 
+                   edgecolors='#FFFFFF', linewidth=1.2, zorder=6)
+        
         offset_x, offset_y = 0.003, 0.002
-        if nid in ['S001', 'S005', 'S011']:
+        if nid == 'S001':
+            offset_x = 0.004
+            offset_y = -0.004
+        elif nid in ['S005', 'S011']:
             offset_y = -0.006
         elif nid in ['S004', 'S008', 'S002']:
             offset_y = 0.004
@@ -90,91 +129,77 @@ def plot_fig1():
             offset_y = 0.004
             offset_x = 0.002
         elif nid == 'S003':
-            # S003 为网络最西侧节点，标签置于右上方，彻底杜绝超出画布左侧坐标轴
             offset_x = 0.003
             offset_y = 0.003
         elif nid in ['S007', 'S015']:
             offset_x = -0.016
             
-        label_text = f"{nid}\n({node['elev']:.0f}m)"
+        label_text = f"{nid} ({node['pop']}人)\n{node['elev']:.0f}m"
         ax.text(node['lon'] + offset_x, node['lat'] + offset_y, label_text, 
-                fontsize=6.2, color=F4P_PALETTE['neutral_dark'], weight='bold', zorder=5,
-                bbox=dict(boxstyle='round,pad=0.15', facecolor='white', alpha=0.88, edgecolor='none'))
+                fontsize=5.8, color='#0F172A', weight='bold', zorder=7,
+                bbox=dict(boxstyle='round,pad=0.15', facecolor='#FFFFFF', alpha=0.92, edgecolor='#94A3B8', linewidth=0.5))
 
-    # O01 调度中心
-    c_base = F4P_PALETTE['red_strong']
-    ax.scatter(o_lon, o_lat, s=240, color=c_base, marker='*', edgecolors='black', 
-               linewidth=1.0, zorder=6)
-    ax.text(o_lon + 0.004, o_lat - 0.005, 'O01 调度中心\n(基地/固定网关G01)', 
-            fontsize=7.2, color=c_base, weight='bold', zorder=6,
-            bbox=dict(boxstyle='square,pad=0.25', facecolor='#FEF2F2', edgecolor=c_base, linewidth=0.8))
+    # O01 调度基地 (指挥网关)
+    c_base = '#DC2626'
+    ax.scatter(o_lon, o_lat, s=260, color=c_base, marker='*', edgecolors='#000000', linewidth=0.8, zorder=8)
+    ax.text(o_lon - 0.004, o_lat - 0.0055, 'O01 凤丹村调度基地\n(指挥中心/固定网关G01)', 
+            fontsize=6.8, color='#991B1B', weight='bold', zorder=8, ha='right',
+            bbox=dict(boxstyle='square,pad=0.25', facecolor='#FEF2F2', edgecolor='#DC2626', linewidth=0.8))
 
-    ax.set_title('图 1  广西横州镇龙乡高精度 30m DEM 地貌阴影晕渲与应急救援网络拓扑', weight='bold', pad=12)
+    ax.set_title('图 1  高精度 2D GIS 矢量等高线测绘与应急救援网络拓扑图', weight='bold', pad=12)
     ax.set_xlabel('经度 (°E)')
     ax.set_ylabel('纬度 (°N)')
-    
-    margin_lon = 0.015
-    margin_lat = 0.012
-    all_lons = [n['lon'] for n in NODES.values()]
-    all_lats = [n['lat'] for n in NODES.values()]
-    ax.set_xlim(min(all_lons) - margin_lon, max(all_lons) + margin_lon)
-    ax.set_ylim(min(all_lats) - margin_lat, max(all_lats) + margin_lat)
-    
-    # 指北针 (带标准极简学术罗盘标)
-    ax.annotate('N', xy=(0.04, 0.94), xytext=(0.04, 0.86),
-                xycoords='axes fraction', ha='center', va='bottom',
-                arrowprops=dict(facecolor=F4P_PALETTE['neutral_dark'], width=1.5, headwidth=5),
-                fontsize=7.8, weight='bold')
-                
-    # ---------------- 地学标准黑白物理比例尺 (Scale Bar: 0 - 2 - 4 km) ----------------
-    # 当地纬度约 23.04°N, 经度 1° 对应地表物理距离约 102.32 km -> 1 km 约 0.009773° 经度
+    ax.set_xlim(min_lon, max_lon)
+    ax.set_ylim(min_lat, max_lat)
+
+    # 罗盘指北针
+    ax.annotate('N', xy=(0.04, 0.94), xytext=(0.04, 0.86), xycoords='axes fraction', ha='center', va='bottom',
+                arrowprops=dict(facecolor='#0F172A', width=1.5, headwidth=5), fontsize=7.8, weight='bold')
+
+    # 标准地学黑白物理比例尺 (0 - 2 - 4 km)
     deg_per_km = 0.009773
     sb_len_km = 4.0
-    sb_len_deg = sb_len_km * deg_per_km  # 约 0.03909°
-    sb_half_deg = 2.0 * deg_per_km        # 约 0.01955°
-    
+    sb_len_deg = sb_len_km * deg_per_km
+    sb_half_deg = 2.0 * deg_per_km
+
     sb_x0 = 109.245
     sb_y0 = 22.9945
     sb_h = 0.0016
-    
-    # 比例尺半透明保护底衬
+
     sb_bg = patches.FancyBboxPatch((sb_x0 - 0.004, sb_y0 - 0.0035), sb_len_deg + 0.012, 0.0085,
                                    boxstyle="round,pad=0.001,rounding_size=0.002",
-                                   facecolor='#FFFFFF', edgecolor='#CBD5E1', linewidth=0.7, alpha=0.92, zorder=6)
+                                   facecolor='#FFFFFF', edgecolor='#CBD5E1', linewidth=0.7, alpha=0.94, zorder=6)
     ax.add_patch(sb_bg)
-    
-    # 0 ~ 2 km: 黑色段块
-    rect_b = patches.Rectangle((sb_x0, sb_y0), sb_half_deg, sb_h, facecolor=F4P_PALETTE['neutral_dark'], edgecolor='black', lw=0.6, zorder=7)
-    # 2 ~ 4 km: 白色段块
+
+    rect_b = patches.Rectangle((sb_x0, sb_y0), sb_half_deg, sb_h, facecolor='#0F172A', edgecolor='black', lw=0.6, zorder=7)
     rect_w = patches.Rectangle((sb_x0 + sb_half_deg, sb_y0), sb_half_deg, sb_h, facecolor='#FFFFFF', edgecolor='black', lw=0.6, zorder=7)
     ax.add_patch(rect_b)
     ax.add_patch(rect_w)
-    
-    # 比例尺刻度文字 (0, 2, 4 km)
-    ax.text(sb_x0, sb_y0 + sb_h + 0.0010, '0', ha='center', va='bottom', fontsize=5.8, weight='bold', color=F4P_PALETTE['neutral_dark'], zorder=8)
-    ax.text(sb_x0 + sb_half_deg, sb_y0 + sb_h + 0.0010, '2', ha='center', va='bottom', fontsize=5.8, weight='bold', color=F4P_PALETTE['neutral_dark'], zorder=8)
-    ax.text(sb_x0 + sb_len_deg, sb_y0 + sb_h + 0.0010, '4 km', ha='center', va='bottom', fontsize=5.8, weight='bold', color=F4P_PALETTE['neutral_dark'], zorder=8)
-                
-    # ---------------- 顶刊级专业图例卡片 (彻底解决气泡上下垂直覆盖) ----------------
-    sample_pops = [10, 100, 1000, 2100]
+
+    ax.text(sb_x0, sb_y0 + sb_h + 0.0010, '0', ha='center', va='bottom', fontsize=5.8, weight='bold', color='#0F172A', zorder=8)
+    ax.text(sb_x0 + sb_half_deg, sb_y0 + sb_h + 0.0010, '2', ha='center', va='bottom', fontsize=5.8, weight='bold', color='#0F172A', zorder=8)
+    ax.text(sb_x0 + sb_len_deg, sb_y0 + sb_h + 0.0010, '4 km', ha='center', va='bottom', fontsize=5.8, weight='bold', color='#0F172A', zorder=8)
+
+    # 专属学术图例
     legend_handles = [
-        mlines.Line2D([], [], marker='*', color='w', markerfacecolor=c_base, markeredgecolor='k', markersize=10.5, label='O01 凤丹村调度基地 (127.7m)')
+        mlines.Line2D([], [], marker='*', color='w', markerfacecolor=c_base, markeredgecolor='k', markersize=11.0, label='O01 调度中心 (指挥基站)'),
+        mlines.Line2D([], [], color='#1E40AF', linestyle='-', linewidth=2.0, label='S001 特大聚落核心主干航路'),
+        mlines.Line2D([], [], color='#1D4ED8', linestyle='--', dashes=(3, 2), linewidth=1.5, label='常规应急生命线连接通道'),
+        mlines.Line2D([], [], marker='o', color='w', markerfacecolor='#0284C7', markeredgecolor='white', markersize=6.0, label='微型聚落 (<50人)'),
+        mlines.Line2D([], [], marker='o', color='w', markerfacecolor='#D97706', markeredgecolor='white', markersize=8.5, label='小型村落 (50-150人)'),
+        mlines.Line2D([], [], marker='o', color='w', markerfacecolor='#EA580C', markeredgecolor='white', markersize=11.0, label='中型村落 (150-400人)'),
+        mlines.Line2D([], [], marker='o', color='w', markerfacecolor='#DC2626', markeredgecolor='white', markersize=14.5, label='特大聚集区 (2100人)'),
     ]
-    for sp in sample_pops:
-        s_size = 40 + (sp - min_pop) / (max_pop - min_pop) * 140
-        legend_handles.append(
-            mlines.Line2D([], [], marker='o', color='w', markerfacecolor=c_node, markeredgecolor='white',
-                          markersize=np.sqrt(s_size)*0.85, label=f'{sp} 人')
-        )
-    leg = ax.legend(handles=legend_handles, loc='lower left', frameon=True, framealpha=0.92, facecolor='white',
-                    edgecolor='#CBD5E1', fontsize=6.2, title='受灾人口规模与基地',
-                    labelspacing=1.65, handletextpad=1.2, borderpad=0.8)
-    leg.get_title().set_fontsize(6.8)
+    leg = ax.legend(handles=legend_handles, loc='lower left', frameon=True, framealpha=0.94, facecolor='white',
+                    edgecolor='#CBD5E1', fontsize=5.9, title='基地、航线与受灾人口等级',
+                    labelspacing=1.30, handletextpad=1.0, borderpad=0.7)
+    leg.get_title().set_fontsize(6.5)
     leg.get_title().set_weight('bold')
 
     plt.subplots_adjust(left=0.08, right=0.95, bottom=0.10, top=0.92)
     export_f4p_figure(fig, os.path.join(FIGURES_DIR, "fig1_terrain_rescue_network"), size_inches=(7.8, 5.4))
     plt.close(fig)
+
 
 
 def plot_fig2():
