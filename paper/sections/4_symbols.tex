@@ -1,0 +1,51 @@
+\section{符号说明}
+
+为保证全文数学推导与算法建模的严谨性与前后一致性，本文所采用的主要数学符号、参数及变量定义如表~\ref{tab:symbols}所示。
+
+\begin{table}[htbp]
+  \centering
+  \caption{主要数学符号与物理参数说明}
+  \label{tab:symbols}
+  \fontsize{10pt}{13.5pt}\selectfont
+  \begin{tabular}{clcc}
+    \toprule
+    \textbf{类别} & \textbf{符号} & \textbf{物理与数学含义} & \textbf{单位 / 取值范围} \\
+    \midrule
+    \multirow{5}{*}{集合与索引} 
+    & $O01$ & 临时调度与起降中心 & --- \\
+    & $\mathcal{S} = \{S001, \dots, S015\}$ & 受灾服务区集合 & 15 个节点 \\
+    & $\mathcal{B} = \{1, 2, \dots, 80\}$ & 离散不可拆分救灾货箱集合 & 80 件 \\
+    & $\mathcal{M} = \{A, B, C\}$ & 异构运输无人机机型集合 & 3 类机型 \\
+    & $\mathcal{R} = \{R01, R02\}$ & 实体中继无人机集合 & 2 架实体 \\
+    \midrule
+    \multirow{7}{*}{机型物理参数} 
+    & $m_{empty}^m, W_m, V_m$ & 机型 $m$ 空机质量、最大有效载荷、最大装载容积 & $\text{kg}, \text{kg}, \text{m}^3$ \\
+    & $E_m^{avail}$ & 机型 $m$ 动力电池总可用容量 & $\text{kWh}$ \\
+    & $R_m^0, R_m^F$ & 机型 $m$ 在空载与满载工况下的标称航程 & $\text{m}$ \\
+    & $v_c^m, v_{up}^m, v_{dn}^m$ & 机型 $m$ 水平巡航速度、爬升速度、垂直下降速度 & $\text{m/s}$ \\
+    & $\eta_{climb}$ & 无人机爬升重力势能能量转换效率 & 取基准值 0.72 \\
+    & $\eta$ & 返航时电池最低允许安全剩余电量余量 (SOC) & 基准取 0.20 (20\%) \\
+    & $P_{cruise}^R, P_{hover}^R, P_{com}$ & 中继机巡航功率、基础悬停功率、通信附加功率 & $\text{kW}$ \\
+    \midrule
+    \multirow{5}{*}{时序与操作工时} 
+    & $t_{prep}^m, t_{load}$ & 起飞前机身与航电准备耗时、单箱装载耗时 & $\text{s}$ \\
+    & $h_0^m, h_b^m$ & 目标服务区交接固定基础耗时、单箱卸载耗时 & $\text{s}$ \\
+    & $T_{full}^m$ & 机型 $m$ 电池从 $0\%$ 充至 $100\%$ 所需基准标称时长 & $\text{s}$ \\
+    & $t_{turnaround}^R$ & 中继无人机返航后地面强制最小维护周转间隔 & 300 s \\
+    & $t_k, d_k^{first}, d_k^{exp}$ & 货箱 $k$ 实际交付时刻、首批硬时限、期望交付时限 & $\text{s}$ \\
+    \midrule
+    \multirow{5}{*}{通信射频参数} 
+    & $f$ & 无线电工作载波频率 & 2400 MHz \\
+    & $D_{ab}, b_{ab}$ & 节点 $a$ 与 $b$ 间三维直线距离、地形视距遮挡指示变量 & $\text{km}, \{0, 1\}$ \\
+    & $L_{path, ab}$ & 空间无线电全路径总损耗 & $\text{dB}$ \\
+    & $L_{max}^{G01 \leftrightarrow UAV}$ & 固定网关与运输机直连链路最大容忍损耗门限 & 122.0 dB \\
+    & $L_{max}^{UAV \leftrightarrow Relay}, L_{max}^{Relay \leftrightarrow G01}$ & 运输机-中继机接入链路门限、中继机-网关回传门限 & 116.0 dB, 126.0 dB \\
+    \midrule
+    \multirow{4}{*}{决策与状态变量} 
+    & $x_{m,b}^i \in \{0, 1\}$ & 问题一在服务区 $i$ 是否采用机型 $m$ 装载批次 $b$ & $0-1$ 变量 \\
+    & $\mathcal{T}_p = (O01 \to \dots \to O01)$ & 问题二第 $p$ 个多点运输航次路径 & 航次序列 \\
+    & $u_m^g(t), b_m^g(t)$ & 任务组 $g$ 在时刻 $t$ 占用的机型 $m$ 飞机数与电池组数 & 正整数 \\
+    & $K \in \{2, 3\}$ & 问题四任务组划分数量 & 整数 \\
+    \bottomrule
+  \end{tabular}
+\end{table}

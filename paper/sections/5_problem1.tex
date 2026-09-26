@@ -1,0 +1,176 @@
+\section{问题一建模与求解：单点往返运输与货箱组批优化}
+
+\subsection{三维航段飞行动力学能耗与最大安全载荷推导}
+
+\subsubsection{三维航段净空巡航与航迹时空剖面}
+在三维复杂山地环境中，设起点 $A$ 与终点 $B$ 的经纬度及地面高程分别为 $(\text{lon}_A, \text{lat}_A, z_A)$ 与 $(\text{lon}_B, \text{lat}_B, z_B)$。
+根据大圆距离公式计算水平位移 $d_{AB}$：
+\begin{equation}
+    d_{AB} = 2 R_{earth} \arcsin \sqrt{\sin^2\left(\frac{\Delta \phi}{2}\right) + \cos\phi_A \cos\phi_B \sin^2\left(\frac{\Delta \lambda}{2}\right)}
+    \label{eq:haversine}
+\end{equation}
+其中 $R_{earth} = 6371.0\text{ km}$ 为地球平均半径。为确保飞行绝对安全，对 $A \to B$ 直线航段按步长 $\Delta s = 20\text{ m}$ 离散采样 30 米 DEM 栅格高程，确定沿线地表最高海拔 $z_{max}^{AB} = \max_{\alpha \in [0, 1]} z_{dem}\big((1-\alpha)\text{lon}_A + \alpha\text{lon}_B, (1-\alpha)\text{lat}_A + \alpha\text{lat}_B\big)$。
+该航段的固定安全巡航绝对海拔 $H_{cruise}^{AB}$ 定义为：
+\begin{equation}
+    H_{cruise}^{AB} = z_{max}^{AB} + 50.0\text{ m}
+    \label{eq:cruise_alt}
+\end{equation}
+若起点为调度中心 O01，起飞高度为地面高程 $z_{O01} = 127.7\text{ m}$；若终点为受灾服务区 $S_i$，投送作业高度为悬停海拔 $z_{S_i} + 30.0\text{ m}$。据此，航段垂直爬升高度与垂直下降高度分别确定为：
+\begin{equation}
+    \Delta h_{up}^{AB} = \max\left(0, H_{cruise}^{AB} - z_{start}^{AB}\right), \quad \Delta h_{dn}^{AB} = \max\left(0, H_{cruise}^{AB} - z_{end}^{AB}\right)
+\end{equation}
+航段飞行总耗时由垂直爬升、水平定高巡航与垂直下降三部分严格累加：
+\begin{equation}
+    t_{flight}^{AB}(m) = \frac{\Delta h_{up}^{AB}}{v_{up}^m} + \frac{d_{AB}}{v_c^m} + \frac{\Delta h_{dn}^{AB}}{v_{dn}^m}
+    \label{eq:flight_time}
+\end{equation}
+
+\subsubsection{非线性动力学等效航程与单点往返总能耗模型}
+当机型 $m$ 搭载载重为 $w$ 的救灾物资时，其水平气动阻力与电机排气推力增大。根据官方附录提供的非线性等效航程动力学方程，其最大等效巡航航程 $R_m(w)$ 为：
+\begin{equation}
+    R_m(w) = R_m^0 - \left(R_m^0 - R_m^F\right) \cdot \left(\frac{w}{W_m}\right)^{1.5}
+    \label{eq:range_decay}
+\end{equation}
+单位距离水平飞行能耗为 $E_m^{avail} / R_m(w)$。在垂直爬升过程中，电机需额外克服全机重力势能做功，爬升重力能耗（单位：$\text{kWh}$）为：
+\begin{equation}
+    E_{climb}(m, w, \Delta h) = \frac{\left(m_{empty}^m + w\right) \cdot g \cdot \Delta h}{\eta_{climb} \cdot 3.6 \times 10^6}
+    \label{eq:climb_energy}
+\end{equation}
+其中重力加速度 $g = 9.8\text{ m/s}^2$，电能转换效率 $\eta_{climb} = 0.72$。垂直下降段受重力做正功辅助，不消耗额外克服重力的能量。
+
+在由调度中心 O01 前往服务区 $S_i$ 并返回的单点直达闭环中，去程（$O01 \to S_i$）为满/重载状态（载重为 $w$），返程（$S_i \to O01$）物资已卸载，为空载状态（载重为 $0$）。因此，单点闭环往返总能耗 $E_{round}(m, i, w)$ 精确表述为：
+\begin{align}
+    E_{round}(m, i, w) = & \left[ \frac{d_{O, i}}{R_m(w)} \cdot E_m^{avail} + \frac{(m_{empty}^m + w) g \Delta h_{up}^{O, i}}{\eta_{climb} \cdot 3.6 \times 10^6} \right] \nonumber \\
+    & + \left[ \frac{d_{i, O}}{R_m^0} \cdot E_m^{avail} + \frac{m_{empty}^m g \Delta h_{up}^{i, O}}{\eta_{climb} \cdot 3.6 \times 10^6} \right]
+    \label{eq:round_energy}
+\end{align}
+
+\subsubsection{最大物理安全载荷上界数值二分搜索}
+为满足返航电量安全要求，无人机完成往返航次返回 O01 时的电池剩余电量比例（SOC）必须不低于预设安全阈值 $\eta$（基准值 $\eta=0.20$），即满足返航安全硬约束：
+\begin{equation}
+    E_{round}(m, i, w) \le (1 - \eta) \cdot E_m^{avail}
+    \label{eq:safety_constraint}
+\end{equation}
+显然，式~(\ref{eq:round_energy})中 $E_{round}(m, i, w)$ 关于有效载荷 $w$ 在区间 $[0, W_m]$ 上具有严格连续且单调递增性。
+因此，本文设计了收敛精度达 $\epsilon = 10^{-5}\text{ kg}$ 的数值二分搜索算法（Bisection Search），精确求解机型 $m$ 在服务区 $i$ 的最大物理安全载荷上界 $w_{max}^{safe}(m, i, \eta)$：
+\begin{equation}
+    w_{max}^{safe}(m, i, \eta) = \sup \left\{ w \in [0, W_m] \;\Big|\; E_{round}(m, i, w) \le (1 - \eta) E_m^{avail} \right\}
+    \label{eq:safe_bisection}
+\end{equation}
+
+基准工况（$\eta=0.20$）下三种机型在 15 个受灾服务区的最大安全载荷分布如图~\ref{fig:q1_safe_payload}所示。
+计算结果显示：A 机在全域 15 个点均可满额达到标称上限 25.0 kg；B 机在绝大多数点可达标称上限 30.0 kg，但在远距离高起伏的 S008 点受到电池容量硬制约，安全上限被压制至 28.69 kg；C 型重载机在 15 个点中存在 5 处显著受航程与爬升能耗制约的关键降额点：S008（58.53 kg，降额达 26.8\%）、S004（63.23 kg）、S012（68.02 kg）、S003（68.33 kg）与 S002（68.56 kg）。这表明在复杂山地环境中建立真实三维动力学能耗剖面具有实际工程必要性。
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.88\textwidth]{fig4_q1_safe_payload_boundary.pdf}
+  \caption{三类机型在 15 个受灾服务区的最大安全物理载荷上界及关键降额点标注}
+  \label{fig:q1_safe_payload}
+\end{figure}
+
+\subsection{离散货箱组批集合划分模型（SPP）构建}
+
+\subsubsection{需求空间构成与货箱物理特征}
+灾区 15 个受灾服务区共计需求 80 件离散货箱，其物理属性呈现高度空间异构性，如图~\ref{fig:q1_cargo_profile}所示。
+Panel (a) 揭示了医疗急救物资（16 件，带首批时效要求）与生活保障物资（64 件）在各服务区的分布，其中高人口重灾点 S001（2100人）独占 15 件物资；Panel (b) 呈现了 4 类货箱的重量-容积分布（如 20kg/0.05m³ 的重载货箱、5kg/0.05m³ 的轻质容积型货箱等）。
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.95\textwidth]{fig3_q1_cargo_demand_profile.pdf}
+  \caption{15 个服务区物资需求构成与 80 件货箱物理属性分布图}
+  \label{fig:q1_cargo_profile}
+\end{figure}
+
+\subsubsection{集合划分模型数学表述与位掩码动态规划}
+设服务区 $S_i$ 的专属待投送货箱集合为 $\mathcal{B}_i$（$\sum_{i=1}^{15} |\mathcal{B}_i| = 80$）。
+由于单点直达要求不跨区混装，优化问题在空间上可严格解耦为 15 个独立子问题。
+对于服务区 $S_i$，枚举其非空货箱子集 $b \subseteq \mathcal{B}_i$。若子集 $b$ 能够被机型 $m \in \mathcal{M}$ 合法装载，则称 $(m, b)$ 为可行候选批次，其必须同时满足物理载荷、空间容积与能量安全三大硬约束：
+\begin{align}
+    \text{质量约束：} & \quad \sum_{k \in b} w_k \le \min\left(W_m, \; w_{max}^{safe}(m, i, \eta)\right) \label{eq:spp_w} \\
+    \text{容积约束：} & \quad \sum_{k \in b} v_k \le V_m \label{eq:spp_v} \\
+    \text{返航安全：} & \quad E_{round}\left(m, i, \sum_{k \in b} w_k\right) \le (1 - \eta) E_m^{avail} \label{eq:spp_soc}
+\end{align}
+
+定义 $0-1$ 决策变量 $x_{m, b}^i \in \{0, 1\}$，表示在服务区 $S_i$ 是否选用机型 $m$ 执飞货箱批次 $b$。建立集合划分优化模型（SPP）：
+\begin{align}
+    \min \quad & \sum_{m \in \mathcal{M}} \sum_{b \in \mathcal{F}_i} x_{m, b}^i \label{eq:spp_obj1} \\
+    \text{sub. to} \quad & \sum_{m \in \mathcal{M}} \sum_{b \in \mathcal{F}_i, \, k \in b} x_{m, b}^i = 1, \quad \forall k \in \mathcal{B}_i \label{eq:spp_cover} \\
+    & x_{m, b}^i \in \{0, 1\}, \quad \forall m \in \mathcal{M}, \; b \in \mathcal{F}_i
+\end{align}
+在架次最少的首要目标前提下，次级目标通过词典序（Lexicographical Order）最小化航段总能耗与作业总耗时：
+\begin{equation}
+    \min \quad \text{Lex} \left( \sum x_{m,b}^i, \; \sum E_{round}(m, i, w_b) \cdot x_{m,b}^i, \; \sum t_{work}(m, i, b) \cdot x_{m,b}^i \right)
+\end{equation}
+其中单批次累计作业耗时计入地面准备、装箱、往返飞行及服务区交接耗时：
+\begin{equation}
+    t_{work}(m, i, b) = t_{prep}^m + |b| \cdot t_{load} + t_{flight}^{O,i}(m) + \left(h_0^m + |b| \cdot h_b^m\right) + t_{flight}^{i,O}(m)
+\end{equation}
+
+由于每个服务区货箱数量 $|\mathcal{B}_i| \le 15$，状态空间规模 $2^{|\mathcal{B}_i|} \le 32768$。本文开发了位掩码动态规划（Bitmask DP）算法，设状态 $dp[\text{mask}]$ 存储覆盖状态 $\text{mask}$ 下的最优解三元组 $(\text{sorties}, \text{energy}, \text{time})$，可实现精确求解，避免了启发式贪婪可能导致的局部次优偏差。
+
+\subsection{基准求解结果与方案分析}
+
+运行上述位掩码集合划分模型，基准工况（$\eta=0.20$）下求得的全局最优解汇总如表~\ref{tab:q1_summary}所示。
+
+\begin{table}[htbp]
+  \centering
+  \caption{问题一单点往返组批基准求解指标汇总（$\eta=0.20$）}
+  \label{tab:q1_summary}
+  \begin{tabular}{lcccc}
+    \toprule
+    \textbf{指标项} & \textbf{数值结果} & \textbf{A 机型} & \textbf{B 机型} & \textbf{C 机型} \\
+    \midrule
+    \textbf{总执飞架次数} & \textbf{18 架次} & 0 架次 & 9 架次 & 9 架次 \\
+    \textbf{累计航程总能耗} & \textbf{59.2034 kWh} & 0.0000 kWh & 19.3412 kWh & 39.8622 kWh \\
+    \textbf{累计作业时间} & 32706.5 s (9.09h) & 0.0 s & 15124.2 s & 17582.3 s \\
+    \textbf{货箱覆盖完备性} & 80 / 80 件 (100\%) & --- & 24 件 & 56 件 \\
+    \textbf{全网平均返航 SOC} & 39.81\% & --- & 46.25\% & 33.37\% \\
+    \textbf{全网最低返航 SOC} & \textbf{22.77\%} & --- & 36.14\% & 22.77\% (S008) \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+从机型匹配结果来看：
+\begin{enumerate}
+    \item 在以“架次最小化”为最高优先级的词典序目标驱动下，算法求解结果体现出装载容积与能量承载力更优的 B、C 型机具备更强集约效能，实现了重载应急物资与大运力机型的有效匹配（A 型轻载机作为高频轻质应急机动备份，未被安排执飞重载干线）；
+    \item B 型机承担了 9 个轻中载架次，主要负责需求箱数较少或偏远中载服务区（如 S006、S007、S010、S011、S014 等）；
+    \item C 型重载机承担了 9 个大载荷高密度架次，重点投送人口密集区 S001（4 架次全满载投送 15 箱）以及 S002、S003、S005 等高需求点。
+    全 18 架次平均载重利用率达到 84.6\%，最低返航 SOC 为 22.77\%，安全下限硬约束裕度达标。
+\end{enumerate}
+
+\subsection{返航安全余量 $\eta$ 敏感性多指标全景分析}
+
+为了探究电量安全余量下限对系统运输能力与经济能耗的制约机理，本文对 $\eta \in [0.10, 0.35]$（步长 0.05）开展了全工况重新二分上界与重新求解。敏感性计算汇总结果如表~\ref{tab:q1_sensitivity}与图~\ref{fig:q1_eta_sensitivity}所示。
+
+\begin{table}[htbp]
+  \centering
+  \caption{返航安全余量 $\eta$ 全工况敏感性对比汇总表}
+  \label{tab:q1_sensitivity}
+  \begin{tabular}{cccccccc}
+    \toprule
+    $\bm{\eta}$ \textbf{取值} & \textbf{最低SOC下限} & \textbf{总架次} & \textbf{总能耗 (kWh)} & \textbf{累计作业时间 (s)} & \textbf{A机} & \textbf{B机} & \textbf{C机} \\
+    \midrule
+    \textbf{0.10} & 10.0\% & 18 & 59.2034 & 32706.5 & 0 & 9 & 9 \\
+    \textbf{0.15} & 15.0\% & 18 & 59.2034 & 32706.5 & 0 & 9 & 9 \\
+    \textbf{0.20 (基准)} & \textbf{20.0\%} & \textbf{18} & \textbf{59.2034} & \textbf{32706.5} & \textbf{0} & \textbf{9} & \textbf{9} \\
+    \textbf{0.25} & 25.0\% & 19 & 61.1537 & 34503.3 & 0 & 10 & 9 \\
+    \textbf{0.30} & 30.0\% & 20 & 67.3185 & 36516.1 & 0 & 9 & 11 \\
+    \textbf{0.35} & 35.0\% & 25 & 78.1376 & 45424.8 & 0 & 14 & 11 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.95\textwidth]{fig5_q1_eta_sensitivity.pdf}
+  \caption{返航安全电量余量 $\eta$ 敏感性多指标全景分析图（架次结构演化与能耗/耗时分段阶梯增长）}
+  \label{fig:q1_eta_sensitivity}
+\end{figure}
+
+结合图~\ref{fig:q1_eta_sensitivity}的演化趋势，可观察到如下规律：
+\begin{enumerate}
+    \item \textbf{安全充裕区（$\eta \le 0.20$）}：在该区间内，各服务区的往返能耗均未突破电池可用容量上限，安全有效载荷上界未成为活跃约束，总架次保持在 18 架次，总能耗与作业耗时处于平稳平台期；
+    \item \textbf{微幅递增区（$0.20 < \eta \le 0.30$）}：随着安全门限抬高，远距离高海拔点（如 S008）最大载荷被进一步截断，导致大载荷批次被迫拆解，架次逐步增加至 19 与 20 架次，能耗平缓增长；
+    \item \textbf{高敏感阶梯递增区（$\eta > 0.30$）}：当 $\eta = 0.35$ 时，更高的电量保留要求限制了 B 机与 C 机的单次有效载荷，单架次装载量减少，系统拆分为 25 个架次（较基准增加 38.9\%），总能耗增加至 78.14 kWh，累计时间增至 12.6 小时，呈现明显的阶梯式递增。
+\end{enumerate}
+上述计算表明，基准值 $\eta=0.20$ 在保障返航电量安全的同时，维持了较高的运输集约度与经济性。

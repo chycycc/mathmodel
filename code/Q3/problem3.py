@@ -385,7 +385,7 @@ def solve_and_export_q3():
             '对比指标': '中继总能耗 (kWh)',
             '方案A (3架次精简分解)': round(relay_energy_a, 4),
             '方案B (4架次跨区接力)': round(relay_energy_b, 4),
-            '优劣权衡说明': f'方案A能耗更低 ({relay_energy_a:.4f} vs {relay_energy_b:.4f})'
+            '优劣权衡说明': f'方案B中继能耗低约 {relay_energy_a - relay_energy_b:.4f} kWh；方案A架次少、组件占用少、周转更简洁稳健'
         },
         {
             '对比指标': '运输与中继联合总能耗 (kWh)',
@@ -397,7 +397,7 @@ def solve_and_export_q3():
             '对比指标': '联合任务完成时间 (s)',
             '方案A (3架次精简分解)': round(joint_time_a, 1),
             '方案B (4架次跨区接力)': round(joint_time_b, 1),
-            '优劣权衡说明': f'方案A与方案B均为 {joint_time_a:.1f}s (受限于运输机最晚返回 7730.5s)'
+            '优劣权衡说明': f'方案A与方案B均为 {joint_time_a:.1f}s (由 RT01 中继机返回时刻决定；运输机最晚返回为 7730.5s)'
         },
         {
             '对比指标': '实体中继机占用',

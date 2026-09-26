@@ -1,0 +1,157 @@
+\subsection*{附录 A.1\quad 三维 DEM 动力学剖面与最大安全物理载荷二分搜索算法}
+
+\begin{lstlisting}[language=Python]
+import math
+import numpy as np
+
+def compute_max_safe_payload(drone_type, svc_id, eta=0.20, tol=1e-5):
+    """
+    通过高精度数值二分搜索求解返航安全电量余量 eta 下的最大物理安全载荷上界
+    """
+    params = DRONE_PARAMS[drone_type]
+    w_min = 0.0
+    w_max = params['w_max']
+    
+    # 检验零载荷可行性
+    e_zero = compute_roundtrip_energy(drone_type, svc_id, 0.0)
+    e_allow = (1.0 - eta) * params['e_avail']
+    if e_zero > e_allow:
+        return 0.0  # 空载亦不可达
+        
+    # 检验满载可行性
+    e_full = compute_roundtrip_energy(drone_type, svc_id, w_max)
+    if e_full <= e_allow:
+        return w_max # 满载安全
+        
+    # 二分单调逼近
+    while (w_max - w_min) > tol:
+        w_mid = 0.5 * (w_min + w_max)
+        e_mid = compute_roundtrip_energy(drone_type, svc_id, w_mid)
+        if e_mid <= e_allow:
+            w_min = w_mid
+        else:
+            w_max = w_mid
+    return round(w_min, 4)
+\end{lstlisting}
+
+\subsection*{附录 A.2\quad 货箱组批位掩码动态规划集合划分（Bitmask DP）核心算法}
+
+\begin{lstlisting}[language=Python]
+def solve_service_spp(boxes, svc_id, eta=0.20):
+    """
+    基于状态压缩位掩码动态规划精确求解服务区货箱最优集合划分 (SPP)
+    优化目标按词典序: 1.最少架次; 2.最小总能耗; 3.最小累计作业时间
+    """
+    n = len(boxes)
+    full_mask = (1 << n) - 1
+    candidates = []
+    
+    # 枚举所有非空货箱子集并验证三项物理硬约束
+    for mask in range(1, 1 << n):
+        sub_boxes = [boxes[i] for i in range(n) if (mask & (1 << i))]
+        w_sum = sum(b['weight'] for b in sub_boxes)
+        v_sum = sum(b['volume'] for b in sub_boxes)
+        
+        for m in ['C', 'B', 'A']:
+            w_safe = compute_max_safe_payload(m, svc_id, eta)
+            if w_sum <= min(DRONE_PARAMS[m]['w_max'], w_safe) and v_sum <= DRONE_PARAMS[m]['vol_max']:
+                energy = compute_roundtrip_energy(m, svc_id, w_sum)
+                t_work = compute_batch_work_time(m, svc_id, len(sub_boxes))
+                candidates.append((mask, m, sub_boxes, energy, t_work))
+                
+    # DP 状态压缩递推: dp[mask] = (sorties, total_energy, total_time, plan)
+    dp = {0: (0, 0.0, 0.0, [])}
+    for mask, m, sub_boxes, energy, t_work in candidates:
+        current_states = list(dp.items())
+        for cur_mask, (cnt, cur_e, cur_t, path) in current_states:
+            if (cur_mask & mask) == 0:
+                nxt_mask = cur_mask | mask
+                nxt_cost = (cnt + 1, cur_e + energy, cur_t + t_work)
+                if nxt_mask not in dp or nxt_cost < dp[nxt_mask][:3]:
+                    dp[nxt_mask] = (cnt + 1, cur_e + energy, cur_t + t_work, path + [(m, sub_boxes, energy)])
+    return dp[full_mask]
+\end{lstlisting}
+
+\subsection*{附录 A.3\quad 改进自适应大邻域搜索（ALNS）核心算子与主循环}
+
+\begin{lstlisting}[language=Python]
+def alns_multitrip_vrptw(boxes, max_iter=100, seed=42):
+    """
+    改进 ALNS 求解异构多机多点带充电时空网络问题
+    """
+    random.seed(seed)
+    current_solution = clarke_wright_init(boxes)
+    best_solution = copy.deepcopy(current_solution)
+    T = init_temperature(current_solution)
+    
+    destroy_ops = [shaw_destroy, worst_delay_destroy, random_destroy]
+    repair_ops = [regret2_repair, arbitrary_insert_repair, route_merge_repair]
+    weights_d = [1.0] * len(destroy_ops)
+    weights_r = [1.0] * len(repair_ops)
+    
+    for iteration in range(max_iter):
+        d_idx = roulette_wheel_select(weights_d)
+        r_idx = roulette_wheel_select(weights_r)
+        
+        destroyed_routes, removed_boxes = destroy_ops[d_idx](current_solution)
+        candidate_solution = repair_ops[r_idx](destroyed_routes, removed_boxes)
+        
+        # 离散事件仿真器核算 Makespan、充电流水线及软硬时限违约惩罚
+        candidate_cost = evaluate_solution_pipeline(candidate_solution)
+        current_cost = evaluate_solution_pipeline(current_solution)
+        
+        delta = candidate_cost - current_cost
+        if delta < 0 or math.exp(-delta / T) > random.random():
+            current_solution = candidate_solution
+            if candidate_cost < evaluate_solution_pipeline(best_solution):
+                best_solution = copy.deepcopy(candidate_solution)
+                update_operator_weights(weights_d, d_idx, weights_r, r_idx, score=3)
+        T *= 0.98  # 模拟退火降温
+    return best_solution
+\end{lstlisting}
+
+\subsection*{附录 A.4\quad 30m DEM 三维射线追踪与视距（LOS）遮挡判定算法}
+
+\begin{lstlisting}[language=Python]
+def check_line_of_sight(pos_a, pos_b, dem_grid, step_m=20.0):
+    """
+    基于三维空间射线追踪判定端点 a 与 b 之间是否存在山体视距遮挡
+    """
+    lon1, lat1, z1 = pos_a
+    lon2, lat2, z2 = pos_b
+    horiz_dist = haversine_distance(lon1, lat1, lon2, lat2)
+    steps = max(2, int(horiz_dist / step_m))
+    
+    for k in range(1, steps):
+        alpha = k / steps
+        cur_lon = (1.0 - alpha) * lon1 + alpha * lon2
+        cur_lat = (1.0 - alpha) * lat1 + alpha * lat2
+        cur_z_los = (1.0 - alpha) * z1 + alpha * z2
+        dem_z = get_dem_elevation(cur_lon, cur_lat)
+        
+        if cur_z_los <= dem_z:
+            return True, dem_z - cur_z_los # 遮挡且返回侵入深度
+    return False, 0.0 # 视距通视 LOS
+\end{lstlisting}
+
+\subsection*{附录 A.5\quad 任务强绑定图论连通分支分解算法}
+
+\begin{lstlisting}[language=Python]
+def extract_connected_components(routes, all_service_ids):
+    """
+    根据多服务区强绑定规则构建服务区无向关联图并提取连通分支
+    """
+    import networkx as nx
+    G = nx.Graph()
+    G.add_nodes_from(all_service_ids)
+    
+    for route in routes:
+        stops = [stop for stop in route.stops if stop != 'O01']
+        for i in range(len(stops)):
+            for j in range(i + 1, len(stops)):
+                G.add_edge(stops[i], stops[j])
+                
+    components = list(nx.connected_components(G))
+    components.sort(key=lambda c: len(c), reverse=True)
+    return components
+\end{lstlisting}

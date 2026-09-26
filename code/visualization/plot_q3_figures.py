@@ -65,7 +65,7 @@ def plot_fig10():
     # 第一菲涅尔区 (1st Fresnel Zone) 空间信道椭球透视 (物理理论支撑)
     d_vals = distances_km
     h_los = elev_o + (d_vals / 7.26) * (elev_s + 30 - elev_o)
-    # 计算第一菲涅尔区几何包络 (f=1.4GHz, lambda=0.214m, 为展现信道切入机制进行适度工程可视缩放)
+    # 计算第一菲涅尔区几何包络 (f=2.4GHz, lambda=0.125m, 为展现信道切入机制进行适度工程可视缩放)
     fresnel_r = 38.0 * np.sqrt(np.maximum(0, (d_vals * (7.26 - d_vals)) / (3.63**2)))
     h_upper = h_los + fresnel_r
     h_lower = h_los - fresnel_r

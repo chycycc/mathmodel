@@ -1,0 +1,157 @@
+\section{问题二建模与求解：异构无人机多点多架次协同运输调度}
+
+\subsection{多点回路动态卸载动力学与交接时序精准递推}
+
+在放开单点直达约束后，无人机允许在一次飞行任务中相继飞抵多个相邻受灾服务区。
+设某一多点巡回架次航线为 $p = (O01 \to S_{i_1} \to S_{i_2} \to \dots \to S_{i_k} \to O01)$，包含 $k$ 个依次访问的服务区。
+在沿途飞行过程中，随着各站货箱的逐次卸载，无人机在不同航段上的有效载荷发生动态阶梯递减：
+\begin{equation}
+    w_r^{carry} = \sum_{j=r}^{k} \sum_{q \in \mathcal{B}_{i_j}^{(p)}} w_q, \quad r = 1, 2, \dots, k
+    \label{eq:carry_weight}
+\end{equation}
+其中 $\mathcal{B}_{i_j}^{(p)}$ 为该架次在第 $j$ 个停靠点卸载的物资子集，返程航段 $S_{i_k} \to O01$ 载荷严格为 0。
+每一航段的水平巡航与垂直爬升能耗均基于其对应的即时载载质量 $w_r^{carry}$ 调用式~(\ref{eq:range_decay})与式~(\ref{eq:climb_energy})动态核算，杜绝了将全程视为恒定载重的粗糙近似。
+
+同时，本文构建了递推累积的现场交付时序模型。
+设架次 $p$ 的起飞离开地面时刻为 $t_{depart}^{(p)} = t_{start}^{(p)} + t_{prep}^m$。
+无人机抵达第 $r$ 个服务区 $S_{i_r}$ 并完成该点全部物资卸载交接的绝对交付时刻 $t_{deliv, r}^{(p)}$，必须严格计入从起飞开始的前序所有航段巡航爬升耗时，以及前序所有中间站点的固定停靠与卸载耗时：
+\begin{equation}
+    t_{deliv, r}^{(p)} = t_{start}^{(p)} + t_{prep}^m + \sum_{j=1}^{r} t_{flight}^{S_{i_{j-1}}, S_{i_j}}(m) + \sum_{j=1}^{r-1} \left(h_0^m + n_j^{(p)} h_b^m\right) + \left(h_0^m + n_r^{(p)} h_b^m\right)
+    \label{eq:deliv_time}
+\end{equation}
+其中约定 $S_{i_0} = O01$，$n_j^{(p)} = |\mathcal{B}_{i_j}^{(p)}|$ 为第 $j$ 站卸载货箱件数。
+无人机在最后一站卸载完毕后飞返调度中心 O01 的落地时刻 $t_{back}^{(p)}$ 为：
+\begin{equation}
+    t_{back}^{(p)} = t_{deliv, k}^{(p)} + t_{flight}^{S_{i_k}, O01}(m)
+    \label{eq:back_time}
+\end{equation}
+该公式考虑了前序所有停靠站点的交接时延累加，保证了各受灾点交付时刻递推计算的物理真实性。
+
+\subsection{车电分离异构多机时空网络调度模型}
+
+\subsubsection{实体机与共享电池双时间轴协同管理}
+应急调度中心配置了 8 架实体运输机（A 型 4 架 $U01 \sim U04$、B 型 2 架 $U05 \sim U06$、C 型 2 架 $U07 \sim U08$）与 14 组共享动力电池（A 型 6 组、B 型 4 组、C 型 4 组）。
+调度方案必须为每个执飞架次 $p$ 分配一架特定实体机 $u(p)$ 与一组特定电池 $k(p)$。
+同一实体机在执飞相继两个架次 $p_1$ 与 $p_2$（$p_1$ 先于 $p_2$）时，时间轴必须满足起飞防碰撞不重叠约束：
+\begin{equation}
+    t_{start}^{(p_2)} \ge t_{back}^{(p_1)}
+    \label{eq:drone_overlap}
+\end{equation}
+
+在车电分离机制下，电池 $k(p)$ 在架次返航后卸下并立即接入专用地面充电桩。
+根据题面两阶段等效恒流-恒压充电模型，若返航剩余电量为 $SOC_{end}^{(p)}$，充至 100\% 满电所需的标称时长 $t_{chg}(SOC)$ 精确表述为分段线性函数：
+\begin{equation}
+    t_{chg}(SOC) = T_{full}^m \cdot \begin{cases}
+        \dfrac{0.90 - SOC}{0.90} \times 0.65 + 0.35, & SOC < 0.90 \\[0.8em]
+        \dfrac{1.00 - SOC}{0.10} \times 0.35, & SOC \ge 0.90
+    \end{cases}
+    \label{eq:two_stage_charge}
+\end{equation}
+考虑到工程换电操作与安全冷却，电池下一次可被其他架次装载起飞的就绪时刻 $t_{ready}^{(p)}$ 确定为：
+\begin{equation}
+    t_{ready}^{(p)} = \left\lceil \left( t_{back}^{(p)} + t_{chg}\big(SOC_{end}^{(p)}\big) \right) \times 10 \right\rceil / 10 + 1.0\text{ s}
+    \label{eq:batt_ready}
+\end{equation}
+若电池 $k$ 连续执飞架次 $p_1$ 与 $p_2$，则必须满足充电流水线硬约束：$t_{start}^{(p_2)} \ge t_{ready}^{(p_1)}$。
+
+\subsubsection{交付时效硬约束与多目标综合代价函数}
+全区 80 件货箱中包含 30 件必须在规定时限内送达的首批关键保障物资（其中急救医疗物资 16 件要求在 7200 秒即 2 小时内送达，特定生活物资要求在 10800 秒即 3 小时内送达）：
+\begin{equation}
+    \text{首批物资硬时限约束：} \quad t_q \le d_q^{first}, \quad \forall q \in \mathcal{B}_{first} \quad (|\mathcal{B}_{first}| = 30)
+    \label{eq:hard_deadline}
+\end{equation}
+违约箱数记为 $V = \sum_{q \in \mathcal{B}_{first}} \mathbb{I}(t_q > d_q^{first})$，在优化中设定为不可触碰的极端惩罚项。
+
+对于其余物资，设定有期望交付时限 $d_q^{exp}$。按附件“应急优先系数” $\mu_q$ 计算加权期望延误时间 $D_w$：
+\begin{equation}
+    D_w = \sum_{q=1}^{80} \mu_q \cdot \max\left(0, \; t_q - d_q^{exp}\right)
+\end{equation}
+
+综上，建立多目标归一化综合惩罚代价函数：
+\begin{equation}
+    \min \quad F = 250 \cdot \frac{N_{sorties}}{80} + 250 \cdot \frac{T_{makespan}}{10000} + 200 \cdot \frac{E_{total}}{100} + 300 \cdot \frac{D_w}{10000} + 10^6 \cdot V
+    \label{eq:q2_objective}
+\end{equation}
+其中 $N_{sorties}$ 为总架次数，$T_{makespan} = \max_p t_{back}^{(p)}$ 为全系统最终完工时刻，$E_{total}$ 为运输总能耗。
+
+\subsection{改进自适应大邻域搜索算法（ALNS）设计}
+
+问题二属于强 NP-hard 的带充电时序异构多旅行商时空网络问题。本文开发了融合领域先验特征的改进 ALNS 算法：
+
+\begin{enumerate}
+    \item \textbf{多维破坏算子库（Destroy Operators）}：
+    \begin{itemize}
+        \item \emph{Shaw 关联破坏算子}：综合考虑地理空间距离与交接时限相关性，计算货箱对 $(i, j)$ 的关联度 $R(i, j) = \phi_1 \frac{d_{ij}}{d_{max}} + \phi_2 \frac{|d_i^{exp} - d_j^{exp}|}{T_{max}}$，成团剔除高相似度物资；
+        \item \emph{Worst 延误破坏算子}：优先剔除对加权延误 $D_w$ 贡献最大的货箱；
+        \item \emph{随机均匀破坏算子}：引入多样性，防止算法早熟陷入局部极值。
+    \end{itemize}
+    
+    \item \textbf{启发式深度修复算子库（Repair Operators）}：
+    \begin{itemize}
+        \item \emph{Regret-2 深度悔恨修复}：计算未指派货箱插入最佳航段与次佳航段的代价差值（Regret 值），优先将高悔恨值货箱插入全局边际代价最小位置；
+        \item \emph{航路全域任意位置插入算子}：取消传统最多两站限制，支持在已有航线任意合法插空形成三点或更多点集约回路；
+        \item \emph{多点回路局部融合算子}：识别空域临近的孤立短架次，实施拓扑合并。
+    \end{itemize}
+    
+    \item \textbf{自适应权重更新与模拟退火接受机制}：
+    采用轮盘赌机制依据各算子在过去迭代中的得分自适应调节调用概率；引入模拟退火 Metropolis 准则 $P_{accept} = \exp(-\Delta F / T_k)$ 动态接受劣解，退火温度按 $T_{k+1} = \alpha T_k$（$\alpha = 0.98$）平滑衰减。
+\end{enumerate}
+图~\ref{fig:q2_alns_conv}展现了不同随机种子下 ALNS 算法的收敛轨迹与 6 类破坏-修复算子权重的动态自适应演进过程。Seed 42 在第 56 代收敛至归一化综合目标值 424.79（24 航次，78.27 kWh）。作为元启发式算法，多随机种子搜索得到了满足全部时空硬约束的高质量可行启发式基线方案，各算子在双时间轴仿真校核下无时空冲突，为后续问题三联合通信提供了航迹基线。
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.95\textwidth]{fig6_q2_alns_convergence_comparison.pdf}
+  \caption{ALNS 算法多随机种子迭代收敛轨迹与邻域算子权重自适应动态演进}
+  \label{fig:q2_alns_conv}
+\end{figure}
+
+\subsection{正式调度方案与多维度全景结果展示}
+
+对比不同独立随机种子（Seed 42, 43, 44）的求解记录，如表~\ref{tab:q2_seeds}所示。Seed 42 在各维度综合表现最为优异，被确立为正式提交方案。
+
+\begin{table}[htbp]
+  \centering
+  \caption{ALNS 算法多随机种子运行结果对比表}
+  \label{tab:q2_seeds}
+  \begin{tabular}{ccccccc}
+    \toprule
+    \textbf{随机种子} & \textbf{总架次} & \textbf{完工时间 (s)} & \textbf{运输能耗 (kWh)} & \textbf{硬时限违约} & \textbf{加权延误} & \textbf{方案论证角色} \\
+    \midrule
+    \textbf{Seed 42} & \textbf{24} & \textbf{7730.5} & \textbf{78.2654} & \textbf{0} & \textbf{0.0} & \textbf{高质量可行启发式基准方案（正式采纳）} \\
+    \textbf{Seed 43} & 28 & 8090.9 & 87.0681 & 0 & 157.2 & 解空间高覆盖探索验证方案 \\
+    \textbf{Seed 44} & 25 & 8123.2 & 81.5361 & 0 & 0.0 & 紧凑回路稳健性验证方案 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+基准方案的核心指标与运行特征深入剖析如下：
+\begin{enumerate}
+    \item \textbf{实体机时空调度全景}：如图~\ref{fig:q2_drone_gantt}所示，8 架实体机（A 型 4 架执飞 10 架次，B 型 2 架执飞 8 架次，C 型 2 架执飞 6 架次）实现了紧凑高效的流水线作业。甘特条内自适应嵌入的真实装载饱和度显示，大量架次载重逼近 100\% 物理极限（如架次 T003 装载率达 98\%）。最后一架无人机于 \textbf{7730.5 秒}（2.15 小时）平稳返航落地，系统完工时效较单点往返缩短达 76.4\%。
+    
+    \item \textbf{首批急救与期望时效达成}：全网 30 箱首批保障物资（含 16 箱医疗）实现 \textbf{0 违约}准时送达，最晚送达时间为 6947.3 秒（严格优于 7200 秒硬时限）；80 箱物资的期望交付时效延误数同样为 \textbf{0}，时效满意度达 100.0\%。
+    
+    \item \textbf{车电分离两阶段充放电流水线}：如图~\ref{fig:q2_battery_pipeline}所示，14 组共享电池（A 型 6 组、B 型 4 组、C 型 4 组）在时间轴上维持了严格的“放电执飞—恒流快充（0~90\%）—涓流充满（90~100\%）—满电待命”循环，全周期充电时序无任何重叠冲突，最低返航 SOC 保持在 22.13\%（$\ge 20\%$）。
+    
+    \item \textbf{空间空域飞行走廊拓扑}：如图~\ref{fig:q2_routes}所示，24 个运输航次在空间上划分为 11 个单点直达专线、10 个双点航程节约回路以及 3 个三点集约回路（T009、T012、T017），全网航段流量密度呈现出中心走廊与外围支线的空间层次。
+\end{enumerate}
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.95\textwidth]{fig7_q2_drone_schedule_gantt.pdf}
+  \caption{8 架实体无人机执飞 24 架次任务时空调度甘特图（嵌入载重利用率徽标与完工时刻）}
+  \label{fig:q2_drone_gantt}
+\end{figure}
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.95\textwidth]{fig8_q2_battery_recharge_pipeline.pdf}
+  \caption{14 组共享电池车电分离两阶段等效充放电流水线时序图}
+  \label{fig:q2_battery_pipeline}
+\end{figure}
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.95\textwidth]{fig9_q2_flight_routes_network.pdf}
+  \caption{24 个运输航次多层级空间飞行拓扑与全网空域流量走廊四分屏图}
+  \label{fig:q2_routes}
+\end{figure}

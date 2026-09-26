@@ -1,0 +1,155 @@
+\section{问题四建模与求解：救援任务分区与资源配置优化}
+
+\subsection{强绑定航线约束与图论连通分支代数证明}
+
+\subsubsection{服务区关联图定义与同架次强绑定规则}
+在突发性特大山地灾害中，为降低大规模指挥调度的信息耦合度并明确救援责任区，需将 15 个受灾服务区解耦为若干相对独立的执行单元。
+赛题明确规定了任务分区的刚性继承边界：必须以问题三确立的 24 个运输航次及其物资组批为固定基础，且\textbf{“若同一运输架次同时涉及多个服务区，则这些服务区必须划入同一任务组”}。
+
+为严格刻画该强约束的代数拓扑本质，本文定义无向关联图 $G = (V, E)$：
+\begin{enumerate}
+    \item 顶点集 $V = \{S001, S002, \dots, S015\}$ 代表 15 个受灾服务区；
+    \item 边集 $E$ 表达航线耦合关系：对于任意两个不同服务区 $u, v \in V$，存在无向边 $(u, v) \in E$ 当且仅当在 24 个最优运输架次中，存在至少一个多点巡回航次相继或同时服务了 $u$ 与 $v$。
+\end{enumerate}
+
+根据题意，若 $(u, v) \in E$，则服务区 $u$ 与 $v$ 必须指派至同一任务组。
+由等价关系的传递性（Transitivity）可得必然引理：
+\begin{lemma}[图论连通分支不可分引理]
+在任意合法任务分区中，若服务区子集 $C \subseteq V$ 属于关联图 $G$ 的同一个极大连通分支（Connected Component），则 $C$ 中的所有服务区必须完整且不可分割地属于同一个任务组。
+\end{lemma}
+
+\subsubsection{连通分支拓扑分解与唯一确定性解}
+对 24 个运输航次的停靠序列进行图论邻接矩阵遍历与深度优先搜索（DFS）连通分支分解。
+结果表明，图 $G$ 在数学上严格分解为恰好 3 个互不相交的连通分支，如图~\ref{fig:q4_graph}所示：
+\begin{enumerate}
+    \item \textbf{超大连通分支 $C_1$（包含 13 个服务区，占比 86.7\%）}：
+    由于双点与三点回路的多重空间重叠与环状互锁，例如：
+    航次 T002 联通 $(S006, S007)$，T003 联通 $(S001, S009)$，T007 联通 $(S007, S011)$，T009 深度联通 $(S003, S007, S015)$，T012 联通 $(S002, S004, S005)$，T017 联通 $(S001, S005, S008)$，T023 联通 $(S012, S013)$ 等。
+    这些多点回路构成了强耦合的连通子图，覆盖服务区集合：
+    \[
+    C_1 = \{S001, S002, S003, S004, S005, S006, S007, S008, S009, S011, S012, S013, S015\}
+    \]
+    该分支承载了全区 24 个架次中的 22 个航次以及 80 箱物资中的 74 箱（占比 92.5\%）。
+    
+    \item \textbf{孤立单点分支 $C_2$（包含 1 个服务区）}：
+    $C_2 = \{S010\}$。在全部 24 个航次中，服务区 S010 仅由单点直达架次 T011（B 型机）单独执飞投送，未与任何其他受灾点发生回路混编，在图 $G$ 中呈现完全孤立顶点。
+    
+    \item \textbf{孤立单点分支 $C_3$（包含 1 个服务区）}：
+    $C_3 = \{S014\}$。同样，服务区 S014 仅由单点直达架次 T005（B 型机）单独执飞投送，亦为图 $G$ 中的完全孤立顶点。
+\end{enumerate}
+
+在继承问题二求解确立的 24 个运输航次及其物资组批配置的前提下，根据同架次强绑定规则与引理 1，任何合法任务分区均只能以极大连通分支 $C_1, C_2, C_3$ 为基本原子单元进行组合。在满足非空划分约束下，分区的数学解呈现出严格的\textbf{条件唯一确定性}：
+\begin{itemize}
+    \item \textbf{当 $K=2$ 时}：超大分支 $C_1$ 必须作为单独一组，孤立分支 $C_2$ 与 $C_3$ 必须合并为另一组，即唯一解为：
+    \begin{equation}
+        G01 = C_1 \; (13\text{ 个服务区}), \quad G02 = C_2 \cup C_3 = \{S010, S014\} \; (2\text{ 个服务区})
+        \label{eq:k2_partition}
+    \end{equation}
+    
+    \item \textbf{当 $K=3$ 时}：三个连通分支各自独立成组，唯一解为：
+    \begin{equation}
+        G01 = C_1 \; (13\text{ 个服务区}), \quad G02 = \{S010\} \; (1\text{ 个服务区}), \quad G03 = \{S014\} \; (1\text{ 个服务区})
+        \label{eq:k3_partition}
+    \end{equation}
+\end{itemize}
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.95\textwidth]{fig13_q4_graph_connectivity_partitions.pdf}
+  \caption{服务区强绑定网络拓扑图论连通分支与 $K=2, 3$ 任务分区拓扑图}
+  \label{fig:q4_graph}
+\end{figure}
+
+\subsection{任务组独立运行资源配置核算模型}
+
+赛题提出了严格的管理约束：“各任务组仅承担本组服务区的运输与保障，\textbf{任务执行期间装备不得跨组调配}”。
+这意味着各任务组必须依托分配给本组的固定装备独立闭环运转，无法借助其他任务组的空闲窗口实施时分复用。
+对于任意任务组 $g$（$g = 1, \dots, K$），其装备配置规模严格由组内任务在时间轴上的\textbf{最大瞬时并发峰值}决定：
+
+\begin{enumerate}
+    \item \textbf{运输无人机配置需求}：
+    对于机型 $m \in \{A, B, C\}$，定义组内航次在时刻 $t$ 占用的实体机数指示函数：
+    \begin{equation}
+        u_m^g(t) = \sum_{p \in \mathcal{T}_g, \, m_p = m} \mathbb{I}\left(t_{start}^{(p)} \le t \le t_{back}^{(p)}\right)
+    \end{equation}
+    组 $g$ 独立执行所需机型 $m$ 的实体机数量 $N_m^g$ 为全时间轴最大并发数：
+    \begin{equation}
+        N_m^g = \max_{t \ge 0} u_m^g(t)
+        \label{eq:peak_drone}
+    \end{equation}
+    
+    \item \textbf{共享电池配置需求}：
+    在车电分离机制下，电池在航次返航落地后必须进入地面两阶段充电桩直至 $t_{ready}^{(p)}$ 充满。在时刻 $t$，处于执飞或充电闭锁状态的电池数指示函数为：
+    \begin{equation}
+        b_m^g(t) = \sum_{p \in \mathcal{T}_g, \, m_p = m} \mathbb{I}\left(t_{start}^{(p)} \le t \le t_{ready}^{(p)}\right)
+    \end{equation}
+    组 $g$ 所需机型 $m$ 的电池组数 $B_m^g$ 为充电与执飞占用的最大并发数：
+    \begin{equation}
+        B_m^g = \max_{t \ge 0} b_m^g(t)
+        \label{eq:peak_batt}
+    \end{equation}
+    
+    \item \textbf{通信中继机与能源组件需求}：
+    组内航线所产生的全部遮挡微时段必须由分配给该组的中继无人机负责保障。若组内中继架次在时间轴上重叠，或相继架次间隔不足 300 秒，则必须配置独立实体中继机及独立组件。
+\end{enumerate}
+
+\subsection{资源配置方案与库存缺口管理学成因分析}
+
+根据上述核算模型，正式求解得到的 $K=2$ 与 $K=3$ 各任务组详细资源配置如表~\ref{tab:q4_partition}所示。
+
+\begin{table}[htbp]
+  \centering
+  \caption{任务分区独立执行装备资源配置明细表}
+  \label{tab:q4_partition}
+  \fontsize{9pt}{12pt}\selectfont
+  \begin{tabular}{cccccccccccc}
+    \toprule
+    \textbf{划分} & \textbf{任务组} & \textbf{包含服务区集合} & \textbf{架次} & \textbf{A机} & \textbf{B机} & \textbf{C机} & \textbf{A电} & \textbf{B电} & \textbf{C电} & \textbf{中继机} & \textbf{中继组件} \\
+    \midrule
+    \multirow{2}{*}{$\bm{K=2}$} 
+    & \textbf{G01} & 13个服务区（排除S010,S014） & 22 & 4 & 2 & 2 & 6 & 4 & 4 & 2 & 2 \\
+    & \textbf{G02} & S010, S014 & 2 & 0 & 1 & 0 & 0 & 2 & 0 & 1 & 1 \\
+    \midrule
+    \multirow{3}{*}{$\bm{K=3}$} 
+    & \textbf{G01} & 13个服务区（排除S010,S014） & 22 & 4 & 2 & 2 & 6 & 4 & 4 & 2 & 2 \\
+    & \textbf{G02} & S010 & 1 & 0 & 1 & 0 & 0 & 1 & 0 & 0 & 0 \\
+    & \textbf{G03} & S014 & 1 & 0 & 1 & 0 & 0 & 1 & 0 & 1 & 1 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+将各任务组独立并发需求求和，与调度中心现有总库存进行严格比对，得到全网装备总需求与资源缺口大盘表（表~\ref{tab:q4_deficit}）与图~\ref{fig:q4_resource}。
+
+\begin{table}[htbp]
+  \centering
+  \caption{任务分区独立执行装备总需求与现有库存缺口大表}
+  \label{tab:q4_deficit}
+  \begin{tabular}{lcccccc}
+    \toprule
+    \textbf{装备资源种类} & \textbf{现有总库存} & \textbf{K=2需求} & \textbf{K=2缺口} & \textbf{K=3需求} & \textbf{K=3缺口} & \textbf{短缺产生核心物理与管理成因} \\
+    \midrule
+    \textbf{A型运输无人机} & 4 架 & 4 架 & \textbf{0} & 4 架 & \textbf{0} & 集中于 G01 组闭环流转，无闲置无缺口 \\
+    \textbf{B型运输无人机} & 2 架 & 3 架 & \textbf{缺 1 架} & 4 架 & \textbf{缺 2 架} & G01独占2架，G02/G03各需独立配置，禁止复用 \\
+    \textbf{C型运输无人机} & 2 架 & 2 架 & \textbf{0} & 2 架 & \textbf{0} & 集中于 G01 组闭环流转，无闲置无缺口 \\
+    \textbf{A型共享电池组} & 6 组 & 6 组 & \textbf{0} & 6 组 & \textbf{0} & G01 组流水线刚好饱和，无缺口 \\
+    \textbf{B型共享电池组} & 4 组 & 6 组 & \textbf{缺 2 组} & 6 组 & \textbf{缺 2 组} & G01需4组周转，外围组需独占1$\sim$2组防冲突 \\
+    \textbf{C型共享电池组} & 4 组 & 4 组 & \textbf{0} & 4 组 & \textbf{0} & G01 组流水线刚好饱和，无缺口 \\
+    \textbf{中继无人机} & 2 架 & 3 架 & \textbf{缺 1 架} & 3 架 & \textbf{缺 1 架} & G01需2架保活，外围组航段遮挡需额外独占1架 \\
+    \textbf{中继能源组件} & 6 组 & 3 组 & \textbf{0} & 3 组 & \textbf{0} & 仅需 3 组，库存 6 组留有 50\% 充裕冗余 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.95\textwidth]{fig14_q4_resource_demand_shortage.pdf}
+  \caption{任务分区隔离执行下的装备并发需求峰值与短缺缺口大盘图}
+  \label{fig:q4_resource}
+\end{figure}
+
+图~\ref{fig:q4_resource}展示了任务分区隔离执行对装备资源配置的影响：
+\begin{enumerate}
+    \item \textbf{时分复用阻断效应的量化表征}：在全局统一调度下，现有 2 架 B 型机和 4 组 B 型电池通过时间交错完全支撑了全网 8 个架次。然而，一旦划分为独立封闭的责任分区，G01 组内部时序紧密，已将 2 架 B 机与 4 组电池占用至极限；外围组（G02/G03）虽然作业集中于个别架次，但在封闭隔离执行原则下无法直接跨组复用中心组装备，使得各组必须独立配置专属装备，从而诱发了资源并发峰值的结构性叠加。
+    \item \textbf{管理体制对资源配置规律的决定性影响}：在 $K=3$ 方案中，G02（S010）与 G03（S014）各自仅执飞 1 个架次，管理隔离使得时分复用被阻断，形成了表观上的资源配置缺口。本文模型精准量化了这一由于管理边界切割带来的“冗余-缺口”转换规律。
+\end{enumerate}
+上述量化分析可为应急管理部门在灾前制定装备前置储备规模、完善跨区应急调度预案提供决策参考。

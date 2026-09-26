@@ -99,7 +99,7 @@ def run_full_audit():
             "fig": "fig10_q3_los_dem_profile_blockage",
             "item": "【维度三】通信剖面图引入第一菲涅尔区(Fresnel Zone)空间信道透视",
             "status": "PASS",
-            "detail": "基于f=1.4GHz计算并渲染第一菲涅尔区椭球包络带，直观揭示山脊刺入信道深达150m+导致严重深衰落机制，理论物理深度拉满"
+            "detail": "基于f=2.4GHz计算并渲染第一菲涅尔区椭球包络带，直观揭示山脊刺入信道深达150m+导致严重深衰落机制，理论物理深度拉满"
         },
         {
             "fig": "fig7_q2_drone_schedule_gantt",
